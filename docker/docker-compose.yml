@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: mm-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: mmuser_password
+      POSTGRES_DB: mattermost
+    ports:
+      - "5432:5432"        # exposed to the host so tests can query the DB directly
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mattermost:
+    # Pinned version (not "latest") so test results stay comparable across runs
+    image: mattermost/mattermost-team-edition:11.11.1
+    platform: linux/amd64   # image is amd64-only → runs under emulation on Apple Silicon
+    container_name: mm-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:mmuser_password@db:5432/mattermost?sslmode=disable&connect_timeout=10
+      MM_SERVICESETTINGS_SITEURL: http://localhost:8065
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"   # enables `mmctl --local` for seeding data
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"     # allows test users to sign up without an invite
+      MM_RATELIMITSETTINGS_ENABLE: "false"         # disables rate limiting for local perf tests
+    ports:
+      - "8065:8065"
+    volumes:
+      - mm-data:/mattermost/data
+      - mm-config:/mattermost/config
+    healthcheck:
+      # Distroless image (no sh/curl) → use the bundled mmctl; requires ENABLELOCALMODE=true
+      test: ["CMD", "/mattermost/bin/mmctl", "--local", "system", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  db-data:
+  mm-data:
+  mm-config:
