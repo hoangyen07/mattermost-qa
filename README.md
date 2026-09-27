@@ -107,6 +107,9 @@ k6 run -e USER=qaadmin -e PASS='Passw0rd!123' -e TEAM=qa-team perf/k6/post-messa
 - [ ] Add `@smoke` / `@regression` tags and split the pipeline
 - [ ] (Optional) Compare with ARTEMIS for exploratory testing
 
+### References
+- [Mattermost Mobile releases](https://github.com/mattermost/mattermost-mobile/releases): Android APK / iOS builds used for mobile tests
+
 ---
 
 ## Tiếng Việt
@@ -210,3 +213,6 @@ k6 run -e USER=qaadmin -e PASS='Passw0rd!123' -e TEAM=qa-team perf/k6/post-messa
 - [ ] Chạy mobile job trên CI với emulator
 - [ ] Thêm tag `@smoke` / `@regression` và tách pipeline
 - [ ] (Tùy chọn) So sánh với ARTEMIS cho exploratory testing
+
+### Tài liệu tham khảo
+- [Mattermost Mobile releases](https://github.com/mattermost/mattermost-mobile/releases): file APK Android / bản build iOS dùng cho test mobile
