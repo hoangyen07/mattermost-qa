@@ -4,23 +4,15 @@ export class LoginPage {
     readonly usernameInput: Locator;
     readonly passwordInput: Locator;
     readonly loginButton: Locator;
-    readonly errorMessage: Locator;
-    readonly errorMessageEmpty: Locator;
-    readonly errorMessageEmptyUsername: Locator;
-    readonly errorMessageEmptyPassword: Locator;
 
-
-
+    errorMessage(text: string): Locator {
+        return this.page.getByText(text)
+    }
 
     constructor(private readonly page: Page) {
         this.usernameInput = page.getByRole('textbox', { name: 'Email or Username' });
         this.passwordInput = page.getByRole('textbox', { name: 'Password', exact: true });
         this.loginButton = page.getByRole('button', { name: 'Log in' });
-        this.errorMessage = page.getByText('The email/username or password is invalid.');
-        this.errorMessageEmpty = page.getByText('Please enter your email or username');
-        this.errorMessageEmptyUsername = page.getByText('The email/username or password is invalid.');
-        this.errorMessageEmptyPassword = page.getByText('Please enter your password');
-
     }
 
     async goto() {
@@ -34,4 +26,5 @@ export class LoginPage {
         await this.passwordInput.fill(password);
         await this.loginButton.click();
     }
+
 }

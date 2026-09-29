@@ -3,6 +3,7 @@ import { LoginPage } from '../../web/pages/LoginPage';
 import { env } from '../../src/config/env';
 
 test.describe('Login', () => {
+
     test('logs in with valid credentials', async ({ page }) => {
         const loginPage = new LoginPage(page);
         await loginPage.goto();
@@ -10,27 +11,22 @@ test.describe('Login', () => {
         await expect(page).toHaveURL(new RegExp(`/${env.team}/channels/town-square`));
     });
 
-    test('shows an error with a wrong password', async ({ page }) => {
-        const loginPage = new LoginPage(page);
-        await loginPage.goto();
-        await loginPage.login(env.adminUsername, 'wrong-password');
-        await expect(loginPage.errorMessage).toBeVisible();
-        await expect(page).toHaveURL(/\/login/);
-    });
+    const invalidLogins = [
+        { title: 'unknown username', username: 'no-such-user', password: 'whatever123', error: 'The email/username or password is invalid.' },
+        { title: 'empty username', username: '', password: 'whatever123', error: 'Please enter your email or username' },
+        { title: 'empty password', username: 'someone', password: '', error: 'Please enter your password' },
+        { title: 'wrong password', username: env.adminUsername, password: 'wrong-password', error: 'The email/username or password is invalid.' }
+    ];
 
-    test('shows an error with a wrong username', async ({page}) => {
-        const loginPage = new LoginPage(page);
-        await loginPage.goto();
-        await loginPage.login('wrong-username', env.adminPassword);
-        await expect(loginPage.errorMessageEmptyUsername).toBeVisible();
-        await expect(page).toHaveURL(/\/login/);    
-    });
+    for (const { title, username, password, error } of invalidLogins) {
+        test(`shows an error with ${title}`, async ({ page }) => {
+            // goto → login → expect error visible → expect URL still /login
+            const loginPage = new LoginPage(page);
+            await loginPage.goto();
+            await loginPage.login(username, password);
+            await expect(loginPage.errorMessage(error)).toBeVisible();
+            await expect(page).toHaveURL(/\/login/);
+        });
+    }
 
-    test('shows an error when both username and password are empty', async ({page}) => {
-        const loginPage = new LoginPage(page);
-        await loginPage.goto();
-        await loginPage.login('', '');
-        await expect(loginPage.errorMessageEmpty).toBeVisible();
-        await expect(page).toHaveURL(/\/login/);    
-    });
 });
