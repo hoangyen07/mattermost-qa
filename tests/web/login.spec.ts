@@ -17,4 +17,20 @@ test.describe('Login', () => {
         await expect(loginPage.errorMessage).toBeVisible();
         await expect(page).toHaveURL(/\/login/);
     });
+
+    test('shows an error with a wrong username', async ({page}) => {
+        const loginPage = new LoginPage(page);
+        await loginPage.goto();
+        await loginPage.login('wrong-username', env.adminPassword);
+        await expect(loginPage.errorMessageEmptyUsername).toBeVisible();
+        await expect(page).toHaveURL(/\/login/);    
+    });
+
+    test('shows an error when both username and password are empty', async ({page}) => {
+        const loginPage = new LoginPage(page);
+        await loginPage.goto();
+        await loginPage.login('', '');
+        await expect(loginPage.errorMessageEmpty).toBeVisible();
+        await expect(page).toHaveURL(/\/login/);    
+    });
 });
