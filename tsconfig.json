@@ -1,0 +1,22 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "preserve",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noEmit": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "noUnusedLocals": true,
+        "types": [
+            "node"
+        ]
+    },
+    "include": [
+        "playwright.config.ts",
+        "src/**/*.ts",
+        "web/**/*.ts",
+        "tests/**/*.ts"
+    ]
+}

@@ -9,7 +9,8 @@
   "scripts": {
     "test": "playwright test",
     "test:web": "playwright test --project=web",
-    "report": "playwright show-report"
+    "report": "playwright show-report",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
