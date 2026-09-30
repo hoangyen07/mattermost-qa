@@ -1,10 +1,8 @@
-import { test, expect } from '@playwright/test';
-import { LoginPage } from '../../web/pages/LoginPage';
+import { test, expect } from '../../src/fixtures';
 import { env } from '../../src/config/env';
 
 test.describe('Login', () => {
-    test('logs in with valid credentials', async ({ page }) => {
-        const loginPage = new LoginPage(page);
+    test('logs in with valid credentials', async ({ page, loginPage }) => {
         await loginPage.goto();
         await loginPage.login(env.adminUsername, env.adminPassword);
         await expect(page).toHaveURL(new RegExp(`/${env.team}/channels/town-square`));
@@ -18,8 +16,7 @@ test.describe('Login', () => {
     ];
 
     for (const { title, username, password, error } of invalidLogins) {
-        test(`shows an error with ${title}`, async ({ page }) => {
-            const loginPage = new LoginPage(page);
+        test(`shows an error with ${title}`, async ({ page, loginPage }) => {
             await loginPage.goto();
             await loginPage.login(username, password);
             await expect(loginPage.errorMessage(error)).toBeVisible();
