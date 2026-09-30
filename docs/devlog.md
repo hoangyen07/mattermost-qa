@@ -195,3 +195,163 @@ Thử cố tình làm test fail (sửa URL mong đợi thành sai) rồi mở `n
 ### Tiếp theo
 - Đăng nhập một lần bằng setup project + `storageState`, không login lại ở mỗi test.
 - Viết script seed dữ liệu (`npm run seed`) để không phải gõ lệnh `mmctl` bằng tay.
+
+---
+
+## Ngày 3 — 29–30/09/2026: Test login sai, gửi message, luyện locator, thêm typecheck
+
+### Mục tiêu
+- Thêm test cho các trường hợp login sai.
+- Viết test gửi message.
+- Luyện chọn locator và dùng `playwright codegen`.
+
+### Đã làm
+- [x] Thêm các test login sai, sau đó refactor thành test data-driven
+- [x] Đổi locator lỗi cố định trong `LoginPage` thành method `errorMessage(text)`
+- [x] Thêm `tsconfig.json` và script `npm run typecheck`
+- [x] Test gửi message: Page Object `ChannelPage` + `tests/web/message.spec.ts`
+- [x] Review code và sửa 9 điểm (xem mục "Review code" bên dưới)
+- [ ] Luyện `codegen`: chuyển sang ngày sau
+
+### Test login sai: data-driven
+Các trường hợp login sai có cùng các bước, chỉ khác dữ liệu. Vì vậy dùng một mảng và vòng lặp thay vì viết từng test riêng:
+
+```ts
+const invalidLogins = [
+  { title: 'unknown username', username: 'no-such-user', password: 'whatever123', error: 'The email/username or password is invalid.' },
+  { title: 'empty username',   username: '',             password: 'whatever123', error: 'Please enter your email or username' },
+  { title: 'empty password',   username: 'someone',      password: '',            error: 'Please enter your password' },
+  { title: 'wrong password',   username: env.adminUsername, password: 'wrong-password', error: 'The email/username or password is invalid.' },
+];
+
+for (const { title, username, password, error } of invalidLogins) {
+  test(`shows an error with ${title}`, async ({ page }) => { /* ... */ });
+}
+```
+
+- Thêm trường hợp mới chỉ cần thêm một dòng vào mảng.
+- Tên test phải khác nhau, nên `title` được đưa vào tên test.
+- `LoginPage` trước đó có 4 locator lỗi viết cứng (`errorMessage`, `errorMessageEmpty`…). Giờ chỉ còn một method nhận nội dung lỗi: `errorMessage(text)`.
+
+**Nhận xét của QA:** username không tồn tại nhận **cùng thông báo** với sai mật khẩu. Đây là thiết kế đúng về bảo mật: nếu thông báo khác nhau, kẻ tấn công có thể dò xem username nào có thật. Test này vì vậy kiểm tra một yêu cầu bảo mật, không chỉ kiểm tra UI.
+
+**Tránh khóa tài khoản:** Mattermost khóa user sau 10 lần đăng nhập sai liên tiếp. Chỉ có trường hợp `wrong password` dùng `qaadmin`. Các trường hợp khác dùng username không tồn tại hoặc để trống, nên không bị tính vào số lần sai.
+
+### Test gửi message
+`web/pages/ChannelPage.ts`:
+
+| Thành phần | Locator / method | Lý do |
+|---|---|---|
+| Ô nhập tin nhắn | `getByTestId('post_textbox')` | Tên theo role (`Write to Town Square`) đổi theo từng channel, còn test id thì không |
+| Nút gửi | `getByTestId('SendMessageButton')` | |
+| Tin nhắn đã gửi | `postWithText(text)`: `getByTestId('post-message-text').filter({ hasText: text })` | Tìm theo nội dung, không dùng `.last()` |
+| Mở channel | `goto(team, channel)` | Không dựa vào trang mà Mattermost tự chuyển đến sau khi login |
+
+Hai nguyên tắc khi test gửi message:
+1. **Nội dung tin nhắn phải khác nhau ở mỗi lần chạy:** `` `Hello from Playwright ${Date.now()}` ``. Nếu mọi lần đều gửi cùng một câu, test sẽ tìm thấy tin nhắn cũ của lần chạy trước và **pass dù lần gửi này bị lỗi**.
+2. **Không dùng `.last()`:** khi chạy song song (`fullyParallel`), tin nhắn cuối cùng có thể là của test khác, làm test lúc pass lúc fail.
+
+### Vấn đề gặp phải
+
+**1. `toBeVisible can be only used with Locator object, was called with Promise`**
+- *Hiện tượng:* cả 3 test login sai đều fail ở dòng `await expect(loginPage.errorMessage(error)).toBeVisible()`.
+- *Nguyên nhân:* method được khai báo là `async errorMessage(text): Promise<Locator>`. Function có `async` **luôn trả về Promise**, nên `expect` nhận một Promise chứa Locator chứ không phải Locator. Chữ `await` ở đầu dòng chỉ chờ kết quả của `toBeVisible()`, không mở Promise bên trong `expect(...)`.
+- *Cách sửa:* bỏ `async` và đổi kiểu trả về thành `Locator`. `getByText()` chỉ tạo ra một mô tả cách tìm phần tử và chạy xong ngay, không cần chờ gì.
+- *Bài học:*
+
+  | Loại method trong Page Object | Có `async` không |
+  |---|---|
+  | Trả về locator (`errorMessage(text)`) | ❌ Không |
+  | Thao tác với trang (`goto()`, `login()`) | ✅ Có |
+
+**2. Lỗi trên không được phát hiện trước khi chạy test**
+- *Nguyên nhân:* repo chưa có `tsconfig.json`. Playwright tự dịch TypeScript khi chạy nhưng **không kiểm tra kiểu**.
+- *Cách sửa:* thêm `tsconfig.json` và script `typecheck`. Khi thử lại với lỗi cũ, `tsc` báo ngay:
+  ```
+  error TS2339: Property 'toBeVisible' does not exist on type 'MakeMatchers<void, Promise<Locator>, {}>'.
+  ```
+  Playwright có khai báo kiểu cho `expect`: khi truyền vào một Promise thì không có `toBeVisible`. Nếu có tsconfig sớm hơn, VS Code đã gạch đỏ lỗi này ngay khi viết code.
+
+**3. `Property 'page' does not exist on type 'ChannelPage'`**
+- *Hiện tượng:* `npm run typecheck` báo lỗi ở `postWithText`, dòng `return this.page.getByTestId(...)`.
+- *Nguyên nhân:* constructor viết `constructor(page: Page)`. Khi đó `page` chỉ là tham số bình thường, **chỉ dùng được bên trong constructor**. Class không có thuộc tính `this.page`, nên method bên ngoài constructor không dùng được.
+- *Cách sửa:* viết `constructor(private readonly page: Page)`. Đây là **parameter property** của TypeScript: thêm `private` / `public` / `readonly` trước tham số thì TypeScript tự tạo thuộc tính cho class và gán giá trị vào, tương đương với `this.page = page`.
+  - `private`: test không gọi thẳng `channelPage.page`, mà gọi method của Page Object.
+  - `readonly`: mỗi Page Object gắn với đúng một `page`, không đổi.
+- *Bài học:* `typecheck` bắt được lỗi này trước khi chạy test.
+
+### Review code
+Sau khi viết xong, review lại toàn bộ code. Các điểm tìm thấy và đã sửa, xếp theo mức độ quan trọng:
+
+| # | Mức độ | Vấn đề | Cách sửa |
+|---|---|---|---|
+| 1 | 🔴 | Nội dung tin nhắn cố định, nên test có thể pass dù không gửi được | Thêm `Date.now()` vào nội dung |
+| 2 | 🔴 | Tìm tin nhắn bằng `.last()`, dễ lấy nhầm tin nhắn của test khác khi chạy song song | `postWithText(text)` lọc theo nội dung |
+| 3 | 🟠 | Locator ô nhập chứa tên channel (`Write to Town Square`) | Dùng `getByTestId('post_textbox')` |
+| 4 | 🟠 | `ChannelPage` không có `goto()`, test dựa vào trang tự chuyển đến sau login | Thêm `goto(team, channel)` |
+| 5 | 🟠 | `.env.example` chứa tài khoản chỉ có trên máy cá nhân, không khớp hướng dẫn seed | Đổi thành `qaadmin` / `qa-team` |
+| 6 | 🟡 | Đặt tên không thống nhất (`textboxPostMessage` và `usernameInput`) | Thống nhất theo dạng phần tử + loại: `messageInput`, `sendButton`, `sendMessage()` |
+| 7 | 🟡 | Trong `LoginPage`, method nằm trước constructor | Theo thứ tự thuộc tính → constructor → method |
+| 8 | 🟡 | Chỗ `import`, chỗ `import type` | Dùng `import type` cho `Locator`, `Page` |
+| 9 | 🟡 | Comment còn sót, thiếu `;`, `package.json` có trường thừa | Dọn dẹp, thêm `"private": true` |
+
+Hai lỗi 🔴 nguy hiểm nhất vì chúng làm test **cho kết quả sai**. Các lỗi còn lại chỉ ảnh hưởng đến khả năng dùng lại và độ dễ đọc của code.
+
+### `tsconfig.json`: các option chính
+
+| Option | Tác dụng |
+|---|---|
+| `strict: true` | Bật toàn bộ kiểm tra nghiêm ngặt. Nên bật từ đầu, vì bật sau khi code đã nhiều thì phải sửa rất nhiều |
+| `noEmit: true` | Chỉ kiểm tra, không sinh file `.js`. Playwright tự chạy file `.ts` |
+| `module: preserve` + `moduleResolution: bundler` | Để công cụ khác (Playwright) xử lý `import`, nên không cần thêm đuôi `.js` vào câu import |
+| `forceConsistentCasingInFileNames` | Báo lỗi khi câu import khác chữ hoa/thường với tên file. Bắt được lỗi `loginPage.ts` / `LoginPage` của Ngày 2 ngay trên Mac |
+| `noUnusedLocals` | Báo lỗi khi có biến hoặc import không dùng |
+| `types: ["node"]` | Nạp khai báo kiểu của Node (`process.env`…) |
+
+**Script `"typecheck": "tsc --noEmit"`:**
+- Chạy bằng `npm run typecheck`. npm tự dùng `tsc` trong `node_modules/.bin`, tức là đúng phiên bản TypeScript của project.
+- Khác với chạy test:
+
+  | | `npm run typecheck` | `npx playwright test` |
+  |---|---|---|
+  | Kiểm tra gì | Code dùng đúng kiểu không | App chạy đúng không |
+  | Phạm vi | Toàn bộ code | Chỉ đoạn code thực sự được chạy tới |
+  | Cần Mattermost chạy không | Không | Có |
+
+- Thói quen: chạy `typecheck` trước khi commit. Sau này trên CI, bước typecheck sẽ chạy trước bước test.
+
+### Luyện locator
+Thứ tự ưu tiên chọn locator, theo khuyến nghị của Playwright:
+
+| Ưu tiên | Locator | Khi nào dùng |
+|---|---|---|
+| 1 | `getByRole` | Hầu hết mọi trường hợp |
+| 2 | `getByLabel`, `getByPlaceholder` | Ô nhập có nhãn hoặc placeholder |
+| 3 | `getByText` | Text không có role rõ ràng, như thông báo lỗi |
+| 4 | `getByTestId` | Khi text thay đổi theo ngữ cảnh. Mattermost có sẵn `data-testid` ở nhiều chỗ |
+| 5 | CSS / XPath | Cách cuối cùng, dễ vỡ nhất |
+
+Ví dụ khi test id tốt hơn role: ô nhập tin nhắn có tên `Write to Town Square`. Sang channel khác thì tên đổi, ví dụ thành `Write to Off-Topic`. Vì vậy Page Object dùng chung cho mọi channel nên dùng `getByTestId('post_textbox')`.
+
+**Strict mode:** locator khớp nhiều hơn một phần tử thì `click` và `fill` sẽ báo lỗi `strict mode violation`. Thu hẹp bằng `.filter({ hasText })`, hoặc dùng `.first()` / `.last()` khi thật sự cần.
+
+### Kiểm tra kết quả
+```
+$ npm run typecheck
+> tsc --noEmit                      # no errors
+
+$ npx playwright test
+Running 6 tests using 6 workers
+  ✓  4 [web] › login.spec.ts › Login › shows an error with empty username (3.4s)
+  ✓  6 [web] › login.spec.ts › Login › shows an error with empty password (3.5s)
+  ✓  5 [web] › login.spec.ts › Login › shows an error with unknown username (3.9s)
+  ✓  1 [web] › login.spec.ts › Login › shows an error with wrong password (4.7s)
+  ✓  3 [web] › login.spec.ts › Login › logs in with valid credentials (4.8s)
+  ✓  2 [web] › message.spec.ts › Send Message › sends a message in a channel (6.9s)
+  6 passed (7.6s)
+```
+Chạy riêng `message.spec.ts` thêm một lần nữa vẫn pass, nghĩa là nội dung tin nhắn không bị trùng giữa các lần chạy.
+
+### Tiếp theo
+- Luyện `codegen`, dùng `--save-storage` / `--load-storage` để không phải login lại.
+- Đăng nhập một lần bằng `storageState`. Hiện `message.spec.ts` phải login qua UI trước khi gửi tin nhắn: tốn thời gian, và nếu trang login lỗi thì mọi test cần đăng nhập đều fail theo.
