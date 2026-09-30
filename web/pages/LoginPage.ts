@@ -5,10 +5,6 @@ export class LoginPage {
     readonly passwordInput: Locator;
     readonly loginButton: Locator;
 
-    errorMessage(text: string): Locator {
-        return this.page.getByText(text)
-    }
-
     constructor(private readonly page: Page) {
         this.usernameInput = page.getByRole('textbox', { name: 'Email or Username' });
         this.passwordInput = page.getByRole('textbox', { name: 'Password', exact: true });
@@ -27,4 +23,7 @@ export class LoginPage {
         await this.loginButton.click();
     }
 
+    errorMessage(text: string): Locator {
+        return this.page.getByText(text);
+    }
 }

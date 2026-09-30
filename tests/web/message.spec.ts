@@ -4,19 +4,17 @@ import { ChannelPage } from '../../web/pages/ChannelPage';
 import { env } from '../../src/config/env';
 
 test.describe('Send Message', () => {
-
-    test('send message in channel', async ({ page }) => {
+    test('sends a message in a channel', async ({ page }) => {
         const loginPage = new LoginPage(page);
         await loginPage.goto();
         await loginPage.login(env.adminUsername, env.adminPassword);
-        await expect(page).toHaveURL(new RegExp(`/${env.team}/channels/town-square`));
+        await expect(page).toHaveURL(/\/channels\//);
 
         const channelPage = new ChannelPage(page);
         const message = `Hello from Playwright ${Date.now()}`;
 
-        await channelPage.postMessageText(message);
+        await channelPage.goto(env.team, 'town-square');
+        await channelPage.sendMessage(message);
         await expect(channelPage.postWithText(message)).toBeVisible();
     });
-
 });
-

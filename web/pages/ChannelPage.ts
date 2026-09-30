@@ -1,20 +1,22 @@
-import { Locator, Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 export class ChannelPage {
-
-    readonly textboxPostMessage: Locator;
-    readonly buttonSend: Locator;
-    readonly postMessage: Locator;
+    readonly messageInput: Locator;
+    readonly sendButton: Locator;
 
     constructor(private readonly page: Page) {
-        this.textboxPostMessage = page.getByRole('textbox', { name: 'Write to Town Square' });
-        this.buttonSend = page.getByTestId('SendMessageButton');
-        this.postMessage = page.getByTestId('post-message-text').last();
+        // Test id instead of role: the textbox name ("Write to <channel>") changes per channel
+        this.messageInput = page.getByTestId('post_textbox');
+        this.sendButton = page.getByTestId('SendMessageButton');
     }
 
-    async postMessageText(message: string) {
-        await this.textboxPostMessage.fill(message);
-        await this.buttonSend.click();
+    async goto(team: string, channel: string) {
+        await this.page.goto(`/${team}/channels/${channel}`);
+    }
+
+    async sendMessage(text: string) {
+        await this.messageInput.fill(text);
+        await this.sendButton.click();
     }
 
     postWithText(text: string): Locator {
