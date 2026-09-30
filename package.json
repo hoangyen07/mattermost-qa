@@ -1,11 +1,9 @@
 {
   "name": "mattermost-qa",
   "version": "1.0.0",
-  "description": "> **One TypeScript stack. Four test layers. One real product.**\\ > Seed data through the API, then verify it on Web, Mobile, and in the database.",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
+  "private": true,
+  "description": "Cross-layer test automation for Mattermost: API, Web, Mobile and DB",
+  "type": "commonjs",
   "scripts": {
     "test": "playwright test",
     "test:web": "playwright test --project=web",
@@ -16,10 +14,6 @@
     "type": "git",
     "url": "git+https://github.com/hoangyen07/mattermost-qa.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/hoangyen07/mattermost-qa/issues"
   },
