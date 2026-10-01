@@ -355,3 +355,143 @@ Chạy riêng `message.spec.ts` thêm một lần nữa vẫn pass, nghĩa là n
 ### Tiếp theo
 - Luyện `codegen`, dùng `--save-storage` / `--load-storage` để không phải login lại.
 - Đăng nhập một lần bằng `storageState`. Hiện `message.spec.ts` phải login qua UI trước khi gửi tin nhắn: tốn thời gian, và nếu trang login lỗi thì mọi test cần đăng nhập đều fail theo.
+
+---
+
+## Ngày 4 — 30/09–01/10/2026: Refactor Page Object: fixture, component, quy tắc
+
+### Mục tiêu
+`LoginPage` và `ChannelPage` đã có từ Ngày 2–3. Ngày 4 nâng Page Object lên mức các framework thực tế hay dùng:
+- Bỏ đoạn `new ...Page(page)` lặp lại trong mọi test.
+- Tách phần giao diện dùng chung (sidebar) thành component riêng.
+- Đặt ra quy tắc rõ ràng cho Page Object.
+
+### Đã làm
+- [x] Đưa Page Object vào fixture: `src/fixtures/index.ts`
+- [x] Tách component `web/components/Sidebar.ts`, gắn vào `ChannelPage`
+- [x] Thêm test chuyển channel bằng sidebar rồi gửi tin nhắn
+- [x] Đối chiếu code với checklist quy tắc Page Object
+- [ ] Luyện `codegen`: chuyển sang ngày sau
+
+Cấu trúc sau Ngày 4:
+```
+src/fixtures/index.ts       – test + expect, provides page objects as fixtures
+web/pages/LoginPage.ts
+web/pages/ChannelPage.ts    – has a Sidebar
+web/components/Sidebar.ts   – channel sidebar component
+tests/web/login.spec.ts
+tests/web/message.spec.ts
+```
+
+### 1. Đưa Page Object vào fixture
+**Vấn đề:** test nào cũng phải `import` rồi `new LoginPage(page)`, `new ChannelPage(page)`. Khi có 30 file test, nếu constructor đổi tham số thì phải sửa cả 30 file.
+
+**Fixture là gì:** `{ page }` trong `async ({ page }) => ...` chính là một fixture có sẵn. Playwright tạo nó trước mỗi test và dọn dẹp sau test. Có thể tự định nghĩa fixture theo cùng cách:
+
+```ts
+export const test = base.extend<Pages>({
+    loginPage: async ({ page }, use) => {
+        await use(new LoginPage(page));
+    },
+    channelPage: async ({ page }, use) => {
+        await use(new ChannelPage(page));
+    },
+});
+export { expect } from '@playwright/test';
+```
+
+- `use(...)` giao Page Object cho test. Code **trước** `use` là setup, code **sau** `use` là teardown (sau này dùng để xóa dữ liệu test).
+- **Fixture chỉ được tạo khi test cần đến.** Test chỉ khai báo `loginPage` thì `channelPage` không được tạo.
+- Test import `test`, `expect` từ `src/fixtures` thay vì `@playwright/test`, rồi nhận Page Object qua tham số:
+  ```ts
+  test('sends a message in a channel', async ({ page, loginPage, channelPage }) => { ... });
+  ```
+
+### 2. Tách component: Sidebar
+Sidebar xuất hiện ở nhiều màn hình. Nếu đưa hết vào `ChannelPage` thì class này ngày càng to, nên tách thành **component object** rồi gắn vào Page Object: `channelPage.sidebar.openChannel('Off-Topic')`.
+
+```ts
+export class Sidebar {
+    readonly root: Locator;
+
+    constructor(page: Page) {
+        this.root = page.getByRole('application', { name: 'channel sidebar region' });
+    }
+
+    channelLink(name: string): Locator {
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return this.root.getByRole('link', { name: new RegExp(`^${escaped} (public|private) channel$`, 'i') });
+    }
+
+    async openChannel(name: string) {
+        await this.channelLink(name).click();
+    }
+}
+```
+
+- **Tìm bên trong một vùng (scoping):** `this.root.getByRole(...)` chỉ tìm trong sidebar. Nếu dùng `page.getByRole(...)` thì sẽ tìm trên cả trang, và có thể trùng với link cùng tên ở chỗ khác, ví dụ trong nội dung tin nhắn.
+- **Tên link thật** (xem bằng `ariaSnapshot`): `off-topic public channel`, `town square public channel`. Đó là tên channel viết thường, nối thêm loại channel.
+- **Vì sao dùng regex khớp chính xác:** `getByRole` mặc định so khớp **không phân biệt hoa thường** và chỉ cần tên **chứa** chuỗi tìm kiếm. Nếu dùng `name: 'Town'`, nó sẽ khớp cả `town square public channel`. Regex `^...$` chỉ khớp đúng tên channel.
+- **Vì sao escape:** tên channel có thể chứa ký tự đặc biệt của regex, ví dụ `C++`.
+- `Sidebar` **không** dùng `private readonly page`: nó chỉ cần `page` để tạo `root`, các method khác đều tìm từ `root`. Ngược lại, `ChannelPage` cần `this.page` trong `goto()` và `postWithText()`.
+
+**Test mới:** `sends a message after switching channel from the sidebar`. Test mở `town-square`, chuyển sang Off-Topic bằng sidebar, kiểm tra URL có `/off-topic`, rồi gửi tin nhắn và kiểm tra tin nhắn hiển thị. Test pass cũng chứng minh `ChannelPage` dùng được cho mọi channel, nhờ việc đổi locator ô nhập sang test id ở Ngày 3.
+
+### 3. Quy tắc Page Object
+
+**Assertion để ở đâu?**
+
+| Cách | Ví dụ | Ưu điểm | Nhược điểm |
+|---|---|---|---|
+| **`expect` nằm trong test** (chọn cách này) | `await expect(channelPage.postWithText(msg)).toBeVisible()` | Đọc test là thấy ngay nó kiểm tra gì | Test dài hơn một chút |
+| `expect` nằm trong Page Object | `await channelPage.expectMessageVisible(msg)` | Test ngắn | Phải mở Page Object mới biết test kiểm tra gì; Page Object phình to dần |
+
+Page Object chỉ làm 2 việc: **cung cấp locator** và **thực hiện hành động**. "Cái gì là đúng" do test quyết định.
+
+**Khi nào dùng sidebar, khi nào dùng `goto()`?**
+Phụ thuộc vào việc test **muốn kiểm tra điều gì**:
+
+| Test | Mục đích | Nên dùng |
+|---|---|---|
+| `sends a message in a channel` | Kiểm tra gửi tin nhắn | `goto()`: chỉ cần đến được channel, đi bằng cách nào không quan trọng |
+| `sends a message after switching channel from the sidebar` | Kiểm tra chuyển channel bằng sidebar | `sidebar.openChannel()`: thao tác chuyển channel chính là thứ đang được test |
+
+Nếu mọi test đều đi qua sidebar, thì khi sidebar lỗi, **tất cả** test cần mở channel đều fail, kể cả test gửi tin nhắn hay upload file. Báo cáo có hàng loạt test đỏ, và phải mất công tìm xem lỗi thật sự ở đâu. Nguyên tắc: **mỗi test chỉ nên fail vì đúng chức năng mà nó kiểm tra.** Các bước chuẩn bị nên đi đường ngắn và ổn định nhất (`goto()`, API), chỉ phần đang được kiểm tra mới đi qua UI.
+
+Lý do khác để dùng `goto()`:
+- Nhanh hơn.
+- Không bị ảnh hưởng khi channel không hiện trên sidebar (chưa tham gia, nhóm channel bị thu gọn, phải cuộn mới thấy).
+- Mở được đường dẫn có trạng thái riêng, như link tới một tin nhắn cụ thể (`/team/pl/<post-id>`).
+
+**Những thứ chưa làm, và lý do:**
+- **`BasePage`** (class cha cho mọi Page Object): hiện mới có 2 Page Object và chúng gần như không có code chung. Tạo lúc này là thêm một tầng mà chưa giải quyết vấn đề nào. Chỉ tạo khi thật sự có code lặp ở 3–4 Page Object (YAGNI: *You Aren't Gonna Need It*).
+- **Fixture đăng nhập sẵn:** là việc của `storageState`, sẽ làm thành bài riêng.
+
+**Checklist** (đã đối chiếu với code hiện tại):
+- [x] Test không `new` Page Object, mà nhận qua fixture
+- [x] Page Object không chứa `expect`
+- [x] Method trả về locator thì không có `async`, method thao tác với trang thì có
+- [x] Locator của component được tìm bên trong `root` của component đó
+- [x] Đặt tên theo một kiểu: `xxxInput`, `xxxButton`, `xxxLink`, method là động từ
+- [x] Page Object không viết cứng dữ liệu test (team, channel, nội dung), mà nhận từ test
+
+### Kiểm tra kết quả
+```
+$ npm run typecheck
+> tsc --noEmit                      # no errors
+
+$ npx playwright test
+Running 7 tests using 6 workers
+  ✓  1 [web] › login.spec.ts › Login › shows an error with empty password (3.6s)
+  ✓  3 [web] › login.spec.ts › Login › shows an error with unknown username (3.6s)
+  ✓  4 [web] › login.spec.ts › Login › shows an error with empty username (3.7s)
+  ✓  6 [web] › login.spec.ts › Login › shows an error with wrong password (4.5s)
+  ✓  2 [web] › login.spec.ts › Login › logs in with valid credentials (4.6s)
+  ✓  5 [web] › message.spec.ts › Send Message › sends a message in a channel (6.1s)
+  ✓  7 [web] › message.spec.ts › Send Message › sends a message after switching channel from the sidebar (5.3s)
+  7 passed (9.6s)
+```
+
+### Tiếp theo
+- Đăng nhập một lần bằng setup project + `storageState`. Hiện 2 test gửi tin nhắn đều phải login qua UI trước.
+- Luyện `codegen`, dùng `--save-storage` / `--load-storage` để không phải login lại.

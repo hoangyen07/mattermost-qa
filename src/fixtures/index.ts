@@ -1,13 +1,13 @@
-import { test as basePage } from '@playwright/test';
+import { test as base } from '@playwright/test';
 import { LoginPage } from '../../web/pages/LoginPage';
 import { ChannelPage } from '../../web/pages/ChannelPage';
 
 type Pages = {
     loginPage: LoginPage;
     channelPage: ChannelPage;
-}
+};
 
-export const test = basePage.extend<Pages>({
+export const test = base.extend<Pages>({
     loginPage: async ({ page }, use) => {
         await use(new LoginPage(page));
     },
