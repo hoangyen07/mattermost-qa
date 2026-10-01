@@ -14,4 +14,19 @@ test.describe('Send Message', () => {
         await channelPage.sendMessage(message);
         await expect(channelPage.postWithText(message)).toBeVisible();
     });
+
+    test('sends a message after switching channel from the sidebar', async ({ page, loginPage, channelPage }) => {
+        await loginPage.goto();
+        await loginPage.login(env.adminUsername, env.adminPassword);
+        await expect(page).toHaveURL(/\/channels\//);
+
+        const message = `Hello Off-Topic ${Date.now()}`;
+
+        await channelPage.goto(env.team, 'town-square');
+        await channelPage.sidebar.openChannel('Off-Topic');
+        await expect(page).toHaveURL(new RegExp(`/${env.team}/channels/off-topic`));
+
+        await channelPage.sendMessage(message);
+        await expect(channelPage.postWithText(message)).toBeVisible();
+    });
 });
