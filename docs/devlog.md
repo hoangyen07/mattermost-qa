@@ -495,3 +495,119 @@ Running 7 tests using 6 workers
 ### Tiếp theo
 - Đăng nhập một lần bằng setup project + `storageState`. Hiện 2 test gửi tin nhắn đều phải login qua UI trước.
 - Luyện `codegen`, dùng `--save-storage` / `--load-storage` để không phải login lại.
+
+---
+
+## Ngày 5 — 02/10/2026: Đưa cấu hình ra `.env`, kiểm tra repo như người mới clone
+
+### Mục tiêu
+Phần lớn cấu hình của test đã nằm trong `.env` từ Ngày 2, và repo đã được đẩy lên GitHub. Ngày 5 tập trung vào:
+- Tìm và đưa nốt phần cấu hình còn viết cứng ra `.env`.
+- Kiểm tra mục đích thật của việc này: **người khác clone repo về có chạy được không?**
+
+### Đã làm
+- [x] Tìm cấu hình còn viết cứng: chỉ còn trong `docker/docker-compose.yml`
+- [x] `docker-compose.yml` đọc thông tin đăng nhập DB và port từ `.env`, có giá trị mặc định
+- [x] Thêm script `env:up`, `env:down`, `env:reset`
+- [x] Kiểm tra lịch sử git: `.env` chưa từng bị commit
+- [x] Dựng repo từ đầu như người mới clone, theo đúng các bước trong README. **Tìm ra 1 bug**, đã sửa
+- [x] Cập nhật README (cả EN và VI): trạng thái các tầng test, hướng dẫn chạy local theo các bước đã chạy thật
+- [ ] Thêm About, Topics, Pin repo trên GitHub
+
+### 1. Cấu hình hay dữ liệu test?
+Không phải chuỗi nào viết cứng trong code cũng cần đưa ra `.env`:
+
+| Loại | Định nghĩa | Ví dụ | Để ở đâu |
+|---|---|---|---|
+| **Cấu hình** | Thay đổi theo môi trường chạy (máy cá nhân, CI, máy người khác) | URL, port, tài khoản, mật khẩu | `.env` |
+| **Dữ liệu test** | Thuộc về nội dung test | `town-square`, `Off-Topic`, thông báo lỗi cần kiểm tra | Trong test |
+
+Phần test đã sạch. Chỗ còn viết cứng là `docker-compose.yml`, và mật khẩu DB bị lặp ở 2 nơi (`POSTGRES_PASSWORD` và chuỗi kết nối `MM_SQLSETTINGS_DATASOURCE`). Nếu chỉ sửa một nơi, app sẽ không kết nối được DB.
+
+### 2. Biến môi trường trong Docker Compose
+```yaml
+POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mmuser_password}
+MM_SQLSETTINGS_DATASOURCE: postgres://${POSTGRES_USER:-mmuser}:${POSTGRES_PASSWORD:-mmuser_password}@db:5432/${POSTGRES_DB:-mattermost}?...
+ports:
+  - "${MM_PORT:-8065}:8065"
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+```
+
+- **`${VAR:-default}`**: nếu biến không có hoặc rỗng thì dùng giá trị mặc định. Ai không có `.env` vẫn chạy được như cũ.
+- **`$$`**: Compose sẽ hiểu `${...}` là biến của nó và thay giá trị ngay khi đọc file. Viết `$$` để Compose để nguyên `${POSTGRES_USER}`, và lệnh healthcheck sẽ đọc biến này **bên trong container**.
+- **Compose không tự đọc `.env` ở thư mục gốc repo.** Khi chạy `-f docker/docker-compose.yml`, Compose tìm `.env` trong thư mục chứa file compose (`docker/`). Vì vậy script phải chỉ rõ `--env-file .env`.
+- **Kiểm tra mà không cần bật container:** `docker compose -f docker/docker-compose.yml --env-file .env config` in ra file compose sau khi đã thay biến. Đã kiểm tra cả trường hợp có và không có `.env`.
+- **Bẫy:** Postgres **chỉ đọc `POSTGRES_PASSWORD` một lần, lúc tạo database mới**. Đổi mật khẩu trong `.env` khi volume đã tồn tại thì DB vẫn giữ mật khẩu cũ, còn app dùng mật khẩu mới, nên không kết nối được. Vì vậy giữ nguyên giá trị cũ làm mặc định, và ghi cảnh báo vào `.env.example`.
+
+**Script mới:**
+
+| Script | Tác dụng |
+|---|---|
+| `npm run env:up` | `up -d --wait`: bật và chờ đến khi `healthy` |
+| `npm run env:down` | Tắt, giữ dữ liệu |
+| `npm run env:reset` | `down -v`: tắt và **xóa toàn bộ dữ liệu**. Tên script nói rõ điều đó để không ai chạy nhầm |
+
+### 3. Kiểm tra lịch sử git
+- `.env` chưa từng xuất hiện trong lịch sử: kiểm tra bằng `git log --all -- .env`.
+- Nhưng ở commit `58fd7ca` (Ngày 2), `.env.example` từng chứa tài khoản cá nhân kèm mật khẩu, và commit đó đã được đẩy lên GitHub.
+- **Xóa khỏi file không có nghĩa là xóa khỏi lịch sử.** Ai cũng xem được commit cũ. Đây chỉ là tài khoản trên Mattermost local, nên cách xử lý là đổi mật khẩu nếu nó được dùng lại ở nơi khác. Với secret thật như API key hay token, phải viết lại lịch sử bằng `git filter-repo` và **thu hồi** secret đó.
+- Quy tắc từ giờ: `.env.example` chỉ chứa giá trị mẫu, và luôn xem `git diff --cached` trước khi commit.
+
+### 4. Dựng repo từ đầu như người mới clone
+Copy đúng những file sẽ được push sang một thư mục tạm. Dùng `COMPOSE_PROJECT_NAME=mmfresh` để có DB trống, không đụng đến môi trường đang dùng. Sau đó làm theo từng bước trong README:
+```bash
+npm ci
+cp .env.example .env
+npx playwright install chromium
+npm run env:up
+# create qaadmin + qa-team with mmctl
+npm run test:web
+```
+
+`npm ci` khác `npm install`: nó cài **đúng phiên bản** ghi trong `package-lock.json` và không sửa file lock. Đây là lệnh nên dùng trên CI và khi clone repo mới.
+
+#### Bug: 2 test gửi tin nhắn fail trên môi trường mới
+- *Hiện tượng:* 5 pass, 2 fail. Cả 2 test gửi tin nhắn bị timeout ở bước click nút gửi. Trên máy cá nhân, cùng code đó vẫn pass.
+- *Điều tra:* ảnh chụp lúc lỗi cho thấy bảng **"Welcome to Mattermost"** nằm đè lên trang. Phần call log trong `error-context.md` ghi rõ:
+  ```
+  - element is visible, enabled and stable
+  - <div data-cy="onboarding-task-list-overlay"></div> ... intercepts pointer events
+  47 × retrying click action
+  ```
+  Nút gửi vẫn hiển thị và bấm được, nhưng một lớp phủ trong suốt nằm trên nó và nhận hết các cú click.
+- *Nguyên nhân:* `qaadmin` là **system admin vừa được tạo**. Lần đầu đăng nhập, Mattermost hiện onboarding task list. Tài khoản cá nhân trên máy dev đã tắt bảng này từ trước, nên bug không bao giờ xuất hiện ở đó.
+- *Cách sửa:* thêm vào `docker-compose.yml`:
+  ```yaml
+  # New admins get an onboarding overlay that blocks every click; keep the test env deterministic
+  MM_SERVICESETTINGS_ENABLEONBOARDINGFLOW: "false"
+  ```
+- *Xác nhận:* chạy `env:reset` để xóa sạch dữ liệu của bản thử, tạo lại user và team, rồi chạy lại: **7/7 pass**. Bước này để chắc test pass là nhờ config, không phải nhờ trạng thái còn sót từ lần chạy trước.
+- *Bài học:*
+  - **"Chạy được trên máy mình" chưa đủ.** Test pass trên máy dev một phần là nhờ trạng thái có sẵn của tài khoản cá nhân, thứ mà người khác và CI không có.
+  - Môi trường test phải cho **cùng một kết quả ở mọi lần chạy**. Các popup chỉ hiện lần đầu (onboarding, tour, thông báo tính năng mới) cần được tắt trong cấu hình môi trường test. Nếu muốn kiểm tra chính onboarding thì viết test riêng.
+  - Khi click bị timeout, hãy đọc **call log** trong `error-context.md`. Dòng `intercepts pointer events` chỉ đúng phần tử đang chặn.
+
+#### Phát hiện thêm: bản clone dùng chung container với bản chính
+Tên Compose project mặc định lấy theo **tên thư mục chứa file compose**. Ở cả bản chính và bản clone, thư mục đó đều tên là `docker`. Thêm vào đó, `container_name: mm-db` / `mm-app` bị đặt cứng. Kết quả là 2 bản sẽ dùng chung container và volume, hoặc báo lỗi trùng tên. Lần này tách ra bằng `COMPOSE_PROJECT_NAME`. Cách lâu dài là khai báo `name:` ở đầu file compose, nhưng việc đó sẽ đổi tên volume, tức là DB hiện tại bắt đầu lại từ đầu. Để quyết định sau.
+
+### Kiểm tra kết quả
+```
+$ docker compose -f docker/docker-compose.yml --env-file .env config   # variables resolved correctly
+$ npm run env:up
+ Container mm-db Healthy
+ Container mm-app Healthy
+$ npm run typecheck                                                    # no errors
+$ npx playwright test
+  7 passed (9.5s)
+```
+Trên môi trường mới clone, với DB trống: 7/7 pass sau khi tắt onboarding.
+
+### Ghi chú cho các ngày sau
+- Commit `8fcb90f` (`read database credentials and port from .env`) chứa luôn dòng tắt onboarding. Commit đã được push nên không sửa lại message. Từ giờ, mỗi thay đổi có ý nghĩa riêng nên tách thành commit riêng (`git add -p`).
+- Đổi `MM_PORT` thì phải đổi cả `BASE_URL` cho khớp.
+
+### Tiếp theo
+- Script `npm run seed` thay cho 3 lệnh `mmctl` thủ công trong README.
+- Đăng nhập một lần bằng setup project + `storageState`.
+- Quyết định có thêm `name:` vào file compose hay không.
