@@ -4,15 +4,16 @@ services:
     container_name: mm-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: mmuser
-      POSTGRES_PASSWORD: mmuser_password
-      POSTGRES_DB: mattermost
+      POSTGRES_USER: ${POSTGRES_USER:-mmuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mmuser_password}
+      POSTGRES_DB: ${POSTGRES_DB:-mattermost}
     ports:
       - "5432:5432"        # exposed to the host so tests can query the DB directly
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      # $$ = expanded inside the container, not by Compose
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -28,13 +29,15 @@ services:
         condition: service_healthy
     environment:
       MM_SQLSETTINGS_DRIVERNAME: postgres
-      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:mmuser_password@db:5432/mattermost?sslmode=disable&connect_timeout=10
-      MM_SERVICESETTINGS_SITEURL: http://localhost:8065
+      MM_SQLSETTINGS_DATASOURCE: postgres://${POSTGRES_USER:-mmuser}:${POSTGRES_PASSWORD:-mmuser_password}@db:5432/${POSTGRES_DB:-mattermost}?sslmode=disable&connect_timeout=10
+      MM_SERVICESETTINGS_SITEURL: http://localhost:${MM_PORT:-8065}
       MM_SERVICESETTINGS_ENABLELOCALMODE: "true"   # enables `mmctl --local` for seeding data
       MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"     # allows test users to sign up without an invite
       MM_RATELIMITSETTINGS_ENABLE: "false"         # disables rate limiting for local perf tests
+      # New admins get an onboarding overlay that blocks every click; keep the test env deterministic
+      MM_SERVICESETTINGS_ENABLEONBOARDINGFLOW: "false"
     ports:
-      - "8065:8065"
+      - "${MM_PORT:-8065}:8065"
     volumes:
       - mm-data:/mattermost/data
       - mm-config:/mattermost/config
