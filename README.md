@@ -34,7 +34,7 @@ Example: sending a message.
 | Layer | Tool | Directory | Status |
 |---|---|---|---|
 | API | Playwright `request` | `tests/api` | 🚧 Planned |
-| Web UI | Playwright + Page Object Model | `tests/web`, `web/pages` | 🚧 Planned |
+| Web UI | Playwright + Page Object Model | `tests/web`, `web/pages` | 🟡 In progress (login, messaging) |
 | Mobile | Mobilewright + Screen Object | `tests/mobile`, `mobile/screens` | 🚧 Planned |
 | Database | Postgres (`pg`) | `src/db` | 🚧 Planned |
 
@@ -56,6 +56,7 @@ src/
   data/       factory.ts    – unique test data, safe for parallel runs
   fixtures/   index.ts      – Playwright fixtures (api, channelId, page objects)
 web/pages/                  – Page Objects
+web/components/             – Component Objects (e.g. Sidebar)
 mobile/screens/             – Screen Objects
 tests/{setup,api,web,mobile}
 docker/     docker-compose.yml – Mattermost + Postgres for local/CI
@@ -70,20 +71,30 @@ docs/       devlog.md          – day-by-day build log
 
 ### Running locally
 
-> 🚧 Only the test environment is ready so far: `docker compose -f docker/docker-compose.yml up -d`, then open http://localhost:8065.
-> The commands below describe the target workflow.
+Requires Node.js 20+ and Docker.
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
-npm run env:up          # Mattermost + Postgres (wait ~1 minute)
-npm run seed            # create admin + team
 npx playwright install chromium
+npm run env:up          # Mattermost + Postgres, waits until healthy (~1 minute)
 
-npm run test:api
+# Create the admin user and team from .env (one time)
+docker exec mm-app /mattermost/bin/mmctl --local user create --username qaadmin --email qaadmin@example.com --password 'Passw0rd!123' --system-admin --email-verified
+docker exec mm-app /mattermost/bin/mmctl --local team create --name qa-team --display-name "QA Team"
+docker exec mm-app /mattermost/bin/mmctl --local team users add qa-team qaadmin
+
 npm run test:web
 npm run report          # open the HTML report
 ```
+
+| Script | Purpose |
+|---|---|
+| `npm run env:up` / `env:down` | Start / stop the environment (data is kept) |
+| `npm run env:reset` | Stop and **delete all data** |
+| `npm run typecheck` | Type-check all TypeScript code |
+
+> 🚧 Planned: `npm run seed` to replace the manual `mmctl` commands, and `npm run test:api`.
 
 #### Mobile (Android)
 1. Start an Android emulator, check it with `adb devices`, then set `MOBILE_DEVICE_ID` in `.env`.
@@ -141,7 +152,7 @@ Ví dụ: gửi tin nhắn.
 | Tầng | Công cụ | Thư mục | Trạng thái |
 |---|---|---|---|
 | API | Playwright `request` | `tests/api` | 🚧 Dự kiến |
-| Web UI | Playwright + Page Object Model | `tests/web`, `web/pages` | 🚧 Dự kiến |
+| Web UI | Playwright + Page Object Model | `tests/web`, `web/pages` | 🟡 Đang làm (login, gửi tin nhắn) |
 | Mobile | Mobilewright + Screen Object | `tests/mobile`, `mobile/screens` | 🚧 Dự kiến |
 | Database | Postgres (`pg`) | `src/db` | 🚧 Dự kiến |
 
@@ -163,6 +174,7 @@ src/
   data/       factory.ts    – test data unique, chạy song song an toàn
   fixtures/   index.ts      – Playwright fixtures (api, channelId, page objects)
 web/pages/                  – Page Objects
+web/components/             – Component Objects (vd. Sidebar)
 mobile/screens/             – Screen Objects
 tests/{setup,api,web,mobile}
 docker/     docker-compose.yml – Mattermost + Postgres chạy local/CI
@@ -177,20 +189,30 @@ docs/       devlog.md          – nhật ký xây dựng theo từng ngày
 
 ### Chạy local
 
-> 🚧 Hiện mới có môi trường test: chạy `docker compose -f docker/docker-compose.yml up -d` rồi mở http://localhost:8065.
-> Các lệnh bên dưới là quy trình dự kiến khi hoàn thành.
+Cần Node.js 20+ và Docker.
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
-npm run env:up          # Mattermost + Postgres (đợi ~1 phút)
-npm run seed            # tạo admin + team
 npx playwright install chromium
+npm run env:up          # Mattermost + Postgres, chờ đến khi healthy (~1 phút)
 
-npm run test:api
+# Tạo admin và team theo .env (chỉ cần một lần)
+docker exec mm-app /mattermost/bin/mmctl --local user create --username qaadmin --email qaadmin@example.com --password 'Passw0rd!123' --system-admin --email-verified
+docker exec mm-app /mattermost/bin/mmctl --local team create --name qa-team --display-name "QA Team"
+docker exec mm-app /mattermost/bin/mmctl --local team users add qa-team qaadmin
+
 npm run test:web
 npm run report          # mở HTML report
 ```
+
+| Script | Tác dụng |
+|---|---|
+| `npm run env:up` / `env:down` | Bật / tắt môi trường (giữ dữ liệu) |
+| `npm run env:reset` | Tắt và **xóa toàn bộ dữ liệu** |
+| `npm run typecheck` | Kiểm tra kiểu toàn bộ code TypeScript |
+
+> 🚧 Dự kiến: `npm run seed` thay cho các lệnh `mmctl` thủ công, và `npm run test:api`.
 
 #### Mobile (Android)
 1. Mở Android emulator, kiểm tra bằng `adb devices`, rồi điền `MOBILE_DEVICE_ID` trong `.env`.
