@@ -5,6 +5,9 @@
   "description": "Cross-layer test automation for Mattermost: API, Web, Mobile and DB",
   "type": "commonjs",
   "scripts": {
+    "env:up": "docker compose -f docker/docker-compose.yml --env-file .env up -d --wait",
+    "env:down": "docker compose -f docker/docker-compose.yml --env-file .env down",
+    "env:reset": "docker compose -f docker/docker-compose.yml --env-file .env down -v",
     "test": "playwright test",
     "test:web": "playwright test --project=web",
     "report": "playwright show-report",
