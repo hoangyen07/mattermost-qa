@@ -10,6 +10,7 @@
     "env:reset": "docker compose -f docker/docker-compose.yml --env-file .env down -v",
     "test": "playwright test",
     "test:web": "playwright test --project=web",
+    "test:postman": "node scripts/run-postman.mts",
     "report": "playwright show-report",
     "typecheck": "tsc --noEmit"
   },
