@@ -17,6 +17,7 @@
         "playwright.config.ts",
         "src/**/*.ts",
         "web/**/*.ts",
-        "tests/**/*.ts"
+        "tests/**/*.ts",
+        "scripts/**/*.mts"
     ]
 }
