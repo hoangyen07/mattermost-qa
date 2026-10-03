@@ -611,3 +611,98 @@ Trên môi trường mới clone, với DB trống: 7/7 pass sau khi tắt onboa
 - Script `npm run seed` thay cho 3 lệnh `mmctl` thủ công trong README.
 - Đăng nhập một lần bằng setup project + `storageState`.
 - Quyết định có thêm `name:` vào file compose hay không.
+
+---
+
+## Ngày 6 — 03/10/2026: Gọi API Mattermost bằng Postman: login, token, tạo post
+
+### Mục tiêu
+Khám phá REST API của Mattermost trước khi viết test API bằng code: đăng nhập lấy token, lấy ID channel, tạo post, và thử các trường hợp lỗi.
+
+### Đã làm
+- [x] Postman collection `postman/mattermost.postman_collection.json`: 5 request luồng chính + 3 request lỗi, 16 assertion
+- [x] Postman environment `postman/local.postman_environment.json`: giá trị mẫu, **không chứa mật khẩu hay token**
+- [x] Script `npm run test:postman` chạy collection bằng Newman, lấy tài khoản từ `.env`
+
+### ▶️ Cách chạy (dùng tạm cho đến khi có test API bằng Playwright)
+```bash
+npm run env:up          # Docker Desktop must be running
+npm run test:postman
+```
+- Tài khoản lấy từ `.env` (`MM_ADMIN_USERNAME`, `MM_ADMIN_PASSWORD`, `MM_TEAM`, `BASE_URL`), nên không cần gõ mật khẩu.
+- Lần đầu chạy, `npx` sẽ tải Newman (cần mạng), các lần sau dùng lại bản đã tải.
+- Mỗi lần chạy tạo thêm 1 tin nhắn test trong `town-square`.
+- Kết quả đúng: `requests 8 / failed 0`, `assertions 16 / failed 0`. Có assertion fail thì lệnh trả về exit code `1`.
+
+Dùng trong ứng dụng Postman: import 2 file trong `postman/`, chọn environment `Local`, điền `username` / `password` / `teamName` ở cột **Current value** (cột này chỉ lưu trên máy, không bị đưa vào file khi export), rồi chọn **Run collection**.
+
+### Collection
+
+| Folder | Request | Kiểm tra |
+|---|---|---|
+| Happy path | `POST /users/login` | `200`, có header `Token`. Lưu `token`, `userId` |
+| | `GET /users/me` | `200`, đúng user vừa đăng nhập |
+| | `GET /teams/name/{team}/channels/name/{channel}` | `200`, đúng channel. Lưu `channelId` |
+| | `POST /posts` | **`201`**, đúng `message`, `channel_id`, `user_id`. Lưu `postId` |
+| | `GET /posts/{postId}` | `200`, đọc lại post vừa tạo |
+| Errors | Login sai thông tin | `401` + `id` lỗi |
+| | `GET /users/me` không có token | `401` + `id` lỗi |
+| | `POST /posts` thiếu `channel_id` | `403` + `id` lỗi |
+
+- **Auth đặt ở cấp collection** (Bearer `{{token}}`), các request kế thừa. Request login và request "không có token" đặt No Auth.
+- **Environment** giống ý tưởng `.env` ở Ngày 5: request không viết cứng URL hay tài khoản.
+- **Pre-request script** tạo nội dung `Hello from Postman ${Date.now()}`. Nội dung khác nhau mỗi lần chạy, cùng nguyên tắc với test UI ở Ngày 3.
+- Tên request, tên test và comment trong collection viết bằng tiếng Anh.
+
+### Những điều học được về API Mattermost
+1. **Token nằm trong header `Token`, không nằm trong body.** Body của response login chỉ là thông tin user (`id`, `username`, `roles`…).
+2. **API dùng ID, không dùng tên.** Giao diện hiện `town-square`, nhưng API tạo post cần `channel_id`. Vì vậy phải gọi API lấy channel theo tên trước.
+3. **Tạo mới trả về `201 Created`, không phải `200`.** Test nên kiểm tra đúng mã này.
+4. **Kiểm tra `id` của lỗi, không kiểm tra `message`.** API login trả về câu `Enter a valid email or username and/or password.`, còn giao diện lại hiện `The email/username or password is invalid.`. Giao diện tự dịch mã lỗi thành câu riêng, nên `id` mới là thứ ổn định.
+5. **Phát hiện: tạo post thiếu `channel_id` trả về `403`, không phải `400`.**
+   - Kết quả: `403 Forbidden`, `api.context.permissions.app_error`, "You do not have the appropriate permissions."
+   - Request thiếu dữ liệu bắt buộc lẽ ra nên trả về `400 Bad Request`. Có vẻ server kiểm tra quyền trên một channel rỗng **trước khi** kiểm tra body có hợp lệ không.
+   - Có thể là bug hoặc thiết kế có chủ ý, nhưng thông báo lỗi chắc chắn gây hiểu nhầm cho người gọi API. Test trong collection kiểm tra **hành vi hiện tại** và có comment ghi rõ điều này.
+
+### Kiểm tra qua nhiều tầng (làm bằng tay)
+Một tin nhắn tạo qua API:
+1. **API:** `201`, có `postId`.
+2. **UI:** mở `town-square` trên trình duyệt, thấy tin nhắn.
+3. **DB:** `SELECT message, channelid FROM posts WHERE id = '<postId>';`
+
+Đây chính là ví dụ "cross-layer" trong README, làm bằng tay trước khi tự động hóa.
+
+### Quyết định: Newman chạy qua `npx`, không thêm vào `devDependencies`
+- **Vấn đề:** cài `newman` 6.2.2 (bản mới nhất) làm `npm audit` báo **19 lỗ hổng** (1 critical, 11 high, 7 moderate). Tất cả nằm trong các thư viện mà Newman phụ thuộc vào (`node-forge`, `lodash`, `handlebars`…). "Bản sửa" mà `npm audit fix --force` đề xuất lại là hạ xuống Newman 4.6.1, một bản cũ hơn nhiều.
+- **Các lựa chọn đã cân nhắc:**
+
+  | Lựa chọn | Ưu điểm | Nhược điểm |
+  |---|---|---|
+  | Giữ trong `devDependencies` | Phiên bản cố định trong lock file, không cần mạng | Repo hiện cảnh báo Dependabot trên GitHub |
+  | **Chạy qua `npx` (đã chọn)** | Repo không có lỗ hổng trong `npm audit`. Phiên bản vẫn được ghim (`newman@6.2.2`) | Lần đầu chạy cần mạng để tải. Code chạy vẫn là cùng một Newman, nên rủi ro không giảm, chỉ là không nằm trong dependency của project |
+
+- **Vì sao chấp nhận được:** Newman chỉ chạy trên máy cá nhân, gọi tới server local. Nó là công cụ tạm, sẽ được thay bằng test API viết bằng Playwright `request`.
+- **Cách làm:** `scripts/run-postman.mts` đọc `.env`, rồi gọi `npx --yes newman@6.2.2 run ...` bằng `spawnSync`, và trả lại exit code của Newman cho npm script.
+- **Script viết bằng `.mts`:** Node 24 chạy được TypeScript trực tiếp. Đuôi `.mts` báo cho Node biết đây là ES module, vì `package.json` đang là `"type": "commonjs"`. Dùng file thay vì viết lệnh shell trong `package.json`, vì `source .env` cần nhiều dấu escape và không chạy được trên Windows.
+- **Đã kiểm tra:** `npm audit` → `found 0 vulnerabilities`. Cố ý sai mật khẩu → exit code `1`. Chạy bình thường → exit code `0`.
+
+### Kiểm tra kết quả
+```
+$ npm run typecheck          # no errors
+$ npm audit                  # found 0 vulnerabilities
+$ npm run test:postman
+│                requests │                 8 │                 0 │
+│              assertions │                16 │                 0 │
+```
+
+### Tiếp theo
+- Viết test API bằng Playwright `request`, theo đúng các bước của collection này:
+
+  | Postman | Playwright |
+  |---|---|
+  | Environment | `.env` + `env.ts` |
+  | Auth ở cấp collection | `extraHTTPHeaders`, trong config hoặc trong fixture |
+  | Pre-request script | Code chạy trước request trong test |
+  | `pm.test` + `pm.expect` | `expect(response.status()).toBe(201)` |
+
+- Khi đã có test API bằng Playwright: xóa `postman/`, `scripts/run-postman.mts` và script `test:postman`.
