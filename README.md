@@ -60,6 +60,7 @@ web/components/             – Component Objects (e.g. Sidebar)
 mobile/screens/             – Screen Objects
 tests/{setup,api,web,mobile}
 docker/     docker-compose.yml – Mattermost + Postgres for local/CI
+postman/    collection + environment – exploratory API checks (Postman / Newman)
 docs/       devlog.md          – day-by-day build log
 ```
 
@@ -93,6 +94,7 @@ npm run report          # open the HTML report
 | `npm run env:up` / `env:down` | Start / stop the environment (data is kept) |
 | `npm run env:reset` | Stop and **delete all data** |
 | `npm run typecheck` | Type-check all TypeScript code |
+| `npm run test:postman` | Run the Postman collection with Newman, using credentials from `.env` |
 
 > 🚧 Planned: `npm run seed` to replace the manual `mmctl` commands, and `npm run test:api`.
 
@@ -178,6 +180,7 @@ web/components/             – Component Objects (vd. Sidebar)
 mobile/screens/             – Screen Objects
 tests/{setup,api,web,mobile}
 docker/     docker-compose.yml – Mattermost + Postgres chạy local/CI
+postman/    collection + environment – khám phá API bằng Postman / Newman
 docs/       devlog.md          – nhật ký xây dựng theo từng ngày
 ```
 
@@ -211,6 +214,7 @@ npm run report          # mở HTML report
 | `npm run env:up` / `env:down` | Bật / tắt môi trường (giữ dữ liệu) |
 | `npm run env:reset` | Tắt và **xóa toàn bộ dữ liệu** |
 | `npm run typecheck` | Kiểm tra kiểu toàn bộ code TypeScript |
+| `npm run test:postman` | Chạy Postman collection bằng Newman, lấy tài khoản từ `.env` |
 
 > 🚧 Dự kiến: `npm run seed` thay cho các lệnh `mmctl` thủ công, và `npm run test:api`.
 
