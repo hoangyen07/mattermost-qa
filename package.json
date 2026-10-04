@@ -13,7 +13,8 @@
     "test:postman": "node scripts/run-postman.mts",
     "test:api": "playwright test --project=api",
     "report": "playwright show-report",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "repository": {
     "type": "git",
@@ -24,9 +25,13 @@
   },
   "homepage": "https://github.com/hoangyen07/mattermost-qa#readme",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.3",
     "dotenv": "^18.0.4",
-    "typescript": "^7.0.2"
+    "eslint": "^10.12.0",
+    "eslint-plugin-playwright": "^2.12.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.0"
   }
 }
