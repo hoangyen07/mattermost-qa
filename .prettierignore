@@ -1,0 +1,5 @@
+package-lock.json
+# Exported from the Postman app; re-exporting would undo any formatting
+postman/
+# Hand-aligned tables and bilingual text; formatting would create large diffs
+*.md

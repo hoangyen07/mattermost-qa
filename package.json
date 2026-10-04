@@ -14,7 +14,9 @@
     "test:api": "playwright test --project=api",
     "report": "playwright show-report",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "repository": {
     "type": "git",
@@ -31,6 +33,7 @@
     "dotenv": "^18.0.4",
     "eslint": "^10.12.0",
     "eslint-plugin-playwright": "^2.12.0",
+    "prettier": "^3.9.9",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.0"
   }
