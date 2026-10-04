@@ -18,6 +18,8 @@ const baseUrl = process.env.BASE_URL ?? 'http://localhost:8065';
 
 const result = spawnSync(
     'npx',
+    // Keep each flag next to its value
+    // prettier-ignore
     [
         '--yes', NEWMAN, 'run', 'postman/mattermost.postman_collection.json',
         '--environment', 'postman/local.postman_environment.json',

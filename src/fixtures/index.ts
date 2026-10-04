@@ -21,16 +21,19 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         await use(new ChannelPage(page));
     },
     // Authenticated admin client for data setup, logged in once per worker
-    api: [async ({ playwright }, use) => {
-        const request = await playwright.request.newContext({ baseURL: env.baseUrl });
-        const api = new MattermostApi(request);
-        const response = await api.login(env.adminUsername, env.adminPassword);
-        if (!response.ok()) {
-            throw new Error(`Admin login failed: ${response.status()} ${await response.text()}`);
-        }
-        await use(api);
-        await request.dispose();
-    }, { scope: 'worker' }],
+    api: [
+        async ({ playwright }, use) => {
+            const request = await playwright.request.newContext({ baseURL: env.baseUrl });
+            const api = new MattermostApi(request);
+            const response = await api.login(env.adminUsername, env.adminPassword);
+            if (!response.ok()) {
+                throw new Error(`Admin login failed: ${response.status()} ${await response.text()}`);
+            }
+            await use(api);
+            await request.dispose();
+        },
+        { scope: 'worker' },
+    ],
 });
 
 export { expect } from '@playwright/test';

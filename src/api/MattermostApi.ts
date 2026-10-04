@@ -3,7 +3,7 @@ import type { APIRequestContext, APIResponse } from '@playwright/test';
 export class MattermostApi {
     private token?: string;
 
-    constructor(private readonly request: APIRequestContext) { }
+    constructor(private readonly request: APIRequestContext) {}
 
     private authHeaders(): Record<string, string> {
         return this.token ? { Authorization: `Bearer ${this.token}` } : {};

@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mmuser_password}
       POSTGRES_DB: ${POSTGRES_DB:-mattermost}
     ports:
-      - "5432:5432"        # exposed to the host so tests can query the DB directly
+      - "5432:5432" # exposed to the host so tests can query the DB directly
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -21,7 +21,7 @@ services:
   mattermost:
     # Pinned version (not "latest") so test results stay comparable across runs
     image: mattermost/mattermost-team-edition:11.11.1
-    platform: linux/amd64   # image is amd64-only → runs under emulation on Apple Silicon
+    platform: linux/amd64 # image is amd64-only → runs under emulation on Apple Silicon
     container_name: mm-app
     restart: unless-stopped
     depends_on:
@@ -31,9 +31,9 @@ services:
       MM_SQLSETTINGS_DRIVERNAME: postgres
       MM_SQLSETTINGS_DATASOURCE: postgres://${POSTGRES_USER:-mmuser}:${POSTGRES_PASSWORD:-mmuser_password}@db:5432/${POSTGRES_DB:-mattermost}?sslmode=disable&connect_timeout=10
       MM_SERVICESETTINGS_SITEURL: http://localhost:${MM_PORT:-8065}
-      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"   # enables `mmctl --local` for seeding data
-      MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"     # allows test users to sign up without an invite
-      MM_RATELIMITSETTINGS_ENABLE: "false"         # disables rate limiting for local perf tests
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true" # enables `mmctl --local` for seeding data
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "true" # allows test users to sign up without an invite
+      MM_RATELIMITSETTINGS_ENABLE: "false" # disables rate limiting for local perf tests
       # New admins get an onboarding overlay that blocks every click; keep the test env deterministic
       MM_SERVICESETTINGS_ENABLEONBOARDINGFLOW: "false"
     ports:

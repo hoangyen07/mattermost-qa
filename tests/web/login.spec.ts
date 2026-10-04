@@ -9,10 +9,25 @@ test.describe('Login', () => {
     });
 
     const invalidLogins = [
-        { title: 'unknown username', username: 'no-such-user', password: 'whatever123', error: 'The email/username or password is invalid.' },
-        { title: 'empty username', username: '', password: 'whatever123', error: 'Please enter your email or username' },
+        {
+            title: 'unknown username',
+            username: 'no-such-user',
+            password: 'whatever123',
+            error: 'The email/username or password is invalid.',
+        },
+        {
+            title: 'empty username',
+            username: '',
+            password: 'whatever123',
+            error: 'Please enter your email or username',
+        },
         { title: 'empty password', username: 'someone', password: '', error: 'Please enter your password' },
-        { title: 'wrong password', username: env.adminUsername, password: 'wrong-password', error: 'The email/username or password is invalid.' },
+        {
+            title: 'wrong password',
+            username: env.adminUsername,
+            password: 'wrong-password',
+            error: 'The email/username or password is invalid.',
+        },
     ];
 
     for (const { title, username, password, error } of invalidLogins) {
