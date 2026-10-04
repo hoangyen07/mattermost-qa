@@ -995,12 +995,45 @@ Chạy lại toàn bộ test sau khi hạ TypeScript và sửa `auth.spec.ts`: k
 ### Mục tiêu
 Tự động hóa việc format code, để không còn lỗi khoảng trắng, xuống dòng hay thiếu dòng trống cuối file (như ở `package.json` Ngày 7), và để review chỉ tập trung vào logic.
 
+### Prettier dùng để làm gì
+**Prettier là công cụ tự động format code.** Nó chỉ lo phần **trình bày** (code trông thế nào), không lo phần **logic** (code chạy đúng hay sai).
+
+Ví dụ trong repo trước khi có Prettier:
+```ts
+constructor(private readonly request: APIRequestContext) { }   // space inside {}
+"test:api": "playwright test --project=api",    "report": ...  // two keys on one line (Day 7)
+}                                                               // no newline at end of file
+```
+
+| Prettier lo | Prettier không lo |
+|---|---|
+| Thụt lề | Quên `await` → việc của **ESLint** |
+| Nháy đơn hay nháy kép | Sai kiểu dữ liệu → việc của **TypeScript** |
+| Có `;` hay không | Test assert sai → việc của người viết test |
+| Dòng quá dài thì tự xuống dòng | |
+| Dấu phẩy cuối, dòng trống cuối file | |
+
+**Vì sao cần:**
+1. **Khỏi phải nghĩ về format:** viết sao cũng được, lưu file là code tự gọn.
+2. **Review chỉ tập trung vào logic:** diff không còn lẫn những dòng chỉ đổi dấu cách.
+3. **Cả team code giống nhau:** `.prettierrc.json` quyết định thay cho việc tranh luận "4 hay 2 dấu cách".
+4. **CI chặn được code chưa format:** `npm run format:check` fail nếu có file sai format.
+
+**Bộ 3 công cụ kiểm tra của repo:**
+
+| Công cụ | Câu hỏi nó trả lời | Lệnh |
+|---|---|---|
+| **Prettier** | Code **trông** có gọn, thống nhất không? | `npm run format` |
+| **ESLint** | Code có **thói quen xấu** hay lỗi dễ mắc không? | `npm run lint` |
+| **TypeScript** | Code có dùng **đúng kiểu** không? | `npm run typecheck` |
+
 ### Đã làm
 - [x] Cài `prettier` 3.9.9
 - [x] `.prettierrc.json` + `.prettierignore`
 - [x] Script `npm run format` (sửa file) và `npm run format:check` (chỉ kiểm tra, dùng cho CI sau này)
 - [x] Format toàn repo một lần, trong một commit riêng
 - [x] README: thêm 2 script vào bảng (cả 2 ngôn ngữ)
+- [x] VS Code: cài extension Prettier, bật format khi lưu file cho project (`.vscode/`)
 
 ### Cấu hình: chọn theo phong cách code đang có
 Mục tiêu là **diff format nhỏ nhất**, không đổi phong cách code mà repo đang dùng.
@@ -1040,6 +1073,37 @@ Không cần. Package này tắt các rule ESLint về format để không đụ
   ```bash
   git config blame.ignoreRevsFile .git-blame-ignore-revs
   ```
+
+### VS Code: tự format khi lưu file
+- Cài extension **Prettier - Code formatter**:
+  ```bash
+  code --install-extension esbenp.prettier-vscode
+  ```
+- `.vscode/settings.json`: cấu hình **cho project**, không đặt trong cài đặt chung của VS Code, nên không ảnh hưởng repo khác. Commit file này để ai clone repo cũng được cùng cấu hình.
+  ```jsonc
+  {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    // Markdown is in .prettierignore; skip it here too so tables are not reformatted on save
+    "[markdown]": {
+      "editor.formatOnSave": false
+    }
+  }
+  ```
+
+  | Setting | Ý nghĩa |
+  |---|---|
+  | `editor.formatOnSave` | Format mỗi khi lưu file (`Cmd+S`) |
+  | `editor.defaultFormatter` | Dùng Prettier để format, không dùng formatter có sẵn của VS Code (2 bên có thể format khác nhau) |
+  | `[markdown]` → `formatOnSave: false` | Không format Markdown khi lưu, cùng lý do với `*.md` trong `.prettierignore` |
+
+- `.vscode/extensions.json`: gợi ý cài Prettier và ESLint. Người clone repo mở bằng VS Code sẽ được hỏi có cài không.
+  ```json
+  {
+    "recommendations": ["esbenp.prettier-vscode", "dbaeumer.vscode-eslint"]
+  }
+  ```
+- **Thử:** reload VS Code (`Cmd+Shift+P` → **Developer: Reload Window**). Mở một file `.ts`, thêm vài dấu cách thừa hoặc đổi `'` thành `"`, rồi `Cmd+S` → code phải tự về đúng format. Nếu không thấy gì, xem lỗi ở **View → Output → Prettier**.
 
 ### Kiểm tra kết quả
 ```
