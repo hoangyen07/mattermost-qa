@@ -894,3 +894,96 @@ $ npm run test:web           # fixture file changed, web tests still pass
 ### Tiếp theo
 - Thêm vào `MattermostApi`: lấy channel theo tên, tạo post, đọc post. Viết test API tương ứng với phần còn lại của collection Postman.
 - Khi test Playwright đã bao phủ hết collection: xóa `postman/`, `scripts/run-postman.mts` và script `test:postman`.
+
+---
+
+## Ghi chú — 04/10/2026: Thêm ESLint, hạ TypeScript 7 → 6
+
+### Mục tiêu
+Thêm lint để bắt những lỗi mà `tsc` không bắt được, nhất là **quên `await`**: lỗi phổ biến nhất trong Playwright và hay gây test flaky.
+
+### Đã làm
+- [x] Hạ TypeScript từ `^7.0.2` xuống `~6.0.3`
+- [x] Cài `eslint` 10.12.0, `@eslint/js`, `typescript-eslint` 8.71.0, `eslint-plugin-playwright` 2.12.0
+- [x] `eslint.config.mjs` + script `npm run lint`
+- [x] Thêm kiểu `User`, `ApiError` trong `src/api/types.ts`, sửa 5 lỗi lint trong `tests/api/auth.spec.ts`
+- [x] README: thêm `npm run lint` vào bảng script (cả 2 ngôn ngữ)
+
+### Vì sao không chỉ dựa vào `tsc`
+TypeScript bắt được lỗi dùng kết quả mà quên `await`, nhưng **không bắt được lỗi gọi hàm như một câu lệnh riêng mà quên `await`**:
+```ts
+page.click('button');              // ❌ no TS error — the test moves on before the click finishes
+const r = api.getMe(); r.status(); // ✅ TS error — this case is caught
+```
+Rule `@typescript-eslint/no-floating-promises` bắt được trường hợp đầu.
+
+### Quyết định: hạ TypeScript 7 → 6
+- **Vấn đề:** `typescript-eslint` 8.71.0 yêu cầu `typescript: >=4.8.4 <6.1.0`. Repo đang dùng TS 7.0.2 (có từ lúc setup, vì `npm install typescript` lấy bản `latest`), nên `npm install` sẽ báo lỗi peer dependency.
+- **Các lựa chọn đã cân nhắc:**
+
+  | Lựa chọn | Ưu điểm | Nhược điểm |
+  |---|---|---|
+  | **Hạ xuống TS `~6.0.3` + ESLint (đã chọn)** | Lint được hỗ trợ đầy đủ. ESLint và `eslint-plugin-playwright` là công cụ phổ biến trong ngành | Phải nâng lại khi `typescript-eslint` hỗ trợ TS 7 |
+  | Ép cài bằng `--legacy-peer-deps` | Giữ TS 7 | Chạy trên tổ hợp chưa được hỗ trợ, lỗi khó đoán |
+  | oxlint + `oxlint-tsgolint` | Xây trên typescript-go (TS 7), rất nhanh | Mới, ít người dùng. Chưa kiểm chứng có rule cho Playwright |
+  | Biome | Lint + format trong một công cụ | Không có rule cho Playwright, kiểm tra theo kiểu yếu hơn |
+  | Chỉ dùng Prettier | Không vướng gì | Không bắt được lỗi logic |
+
+- **Số liệu lượt tải npm trong tuần (04/10/2026):** TS 5.x 64,6%, **6.x 15,3%**, **7.x 10,6%**. TS 6 đang được dùng nhiều hơn TS 7, nên hạ xuống không phải là dùng công nghệ lạc hậu.
+- **Rủi ro khi hạ:** thấp.
+  - Code chỉ dùng TypeScript cơ bản.
+  - Playwright tự chuyển TypeScript sang JavaScript bằng công cụ riêng, không dùng `tsc` của project. `tsc` chỉ dùng cho `npm run typecheck`.
+  - Rủi ro duy nhất: phải nâng cấp lại sau này.
+- **Ghim bằng `~` thay vì `^`:** `~6.0.3` chỉ nhận bản vá 6.0.x. Nếu dùng `^`, khi TS 6.1 ra npm có thể tự nâng lên, vượt giới hạn `<6.1.0` của `typescript-eslint`, và lint lại hỏng.
+- **Khi nào nâng lại lên TS 7:** khi `typescript-eslint` hỗ trợ. Cách kiểm tra:
+  ```bash
+  npm view typescript-eslint peerDependencies
+  ```
+
+### `eslint.config.mjs`
+| Phần | Ý nghĩa |
+|---|---|
+| Đuôi `.mjs` | `package.json` là `"type": "commonjs"`. `.mjs` báo cho Node biết file này dùng `import`/`export` |
+| `// @ts-check` | VS Code kiểm tra kiểu ngay trong file config |
+| `eslint.configs.recommended` | Bộ rule cơ bản của JavaScript |
+| `tseslint.configs.recommendedTypeChecked` | Rule TypeScript có dùng thông tin kiểu, trong đó có `no-floating-promises` |
+| `projectService` + `allowDefaultProject` | ESLint đọc `tsconfig.json` để biết kiểu. `eslint.config.mjs` không nằm trong `include` của tsconfig, nên nếu thiếu `allowDefaultProject` sẽ báo lỗi `was not found by the project service` |
+| `files: ['tests/**/*.ts']` + Playwright `flat/recommended` | Rule Playwright (`no-focused-test`, `expect-expect`…) chỉ áp dụng cho file test, không áp dụng cho page object |
+
+### Lỗi ESLint tìm ra: `any` từ `response.json()`
+Lần chạy lint đầu tiên báo 5 lỗi trong `tests/api/auth.spec.ts`:
+```
+Unsafe assignment of an `any` value               @typescript-eslint/no-unsafe-assignment
+Unsafe member access .username on an `any` value  @typescript-eslint/no-unsafe-member-access
+Unsafe member access .id on an `any` value        @typescript-eslint/no-unsafe-member-access
+```
+- **Nguyên nhân:** `response.json()` trả về `Promise<any>`. Với `any`, TypeScript bỏ qua mọi kiểm tra: gõ sai `user.usernmae` vẫn không báo lỗi. Đây là chỗ mà `strict: true` để lọt.
+- **Cách sửa:** khai báo kiểu cho response trong `src/api/types.ts`, rồi ép kiểu:
+  ```ts
+  const user = (await response.json()) as User;
+  const error = (await response.json()) as ApiError;
+  ```
+- **Lưu ý:** `as User` là **lời hứa** với TypeScript, không phải phép kiểm tra lúc chạy. Nếu server trả về sai cấu trúc, TypeScript vẫn tin. Kiểm tra thật lúc chạy sẽ làm sau bằng `zod`.
+
+### Kiểm tra ESLint bắt được lỗi thật
+Gài lỗi tạm, chạy `npx eslint tests/web`, rồi hoàn tác:
+
+| Gài lỗi | ESLint báo |
+|---|---|
+| Xóa `await` trước `channelPage.sendMessage(message)` (2 chỗ) | 2 lỗi `@typescript-eslint/no-floating-promises` |
+| `test.describe(` → `test.describe.only(` | 1 lỗi `playwright/no-focused-test` |
+
+### Kiểm tra kết quả
+```
+$ npx tsc -v                 # Version 6.0.3
+$ npm run typecheck          # no errors
+$ npm run lint               # no errors
+$ npm audit                  # found 0 vulnerabilities
+$ npm run test:api           # 4 passed (614ms)
+$ npm run test:web           # 7 passed (7.8s)
+```
+Chạy lại toàn bộ test sau khi hạ TypeScript và sửa `auth.spec.ts`: không có test nào hỏng.
+
+### Tiếp theo
+- Thêm Prettier thành một đợt riêng, để commit format không bị trộn với commit lint.
+- Kiểm tra response lúc chạy bằng `zod`, thay cho `as`.
