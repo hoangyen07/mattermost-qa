@@ -706,3 +706,191 @@ $ npm run test:postman
   | `pm.test` + `pm.expect` | `expect(response.status()).toBe(201)` |
 
 - Khi đã có test API bằng Playwright: xóa `postman/`, `scripts/run-postman.mts` và script `test:postman`.
+
+---
+
+## Ngày 7 — 04/10/2026: Bắt đầu test API bằng Playwright: API client, fixture, kiến thức TypeScript
+
+### Mục tiêu
+Chuyển collection Postman (Ngày 6) sang test API bằng Playwright `request`: viết API client, fixture `api`, test login.
+
+### Đã làm
+- [x] Project `api` trong `playwright.config.ts`, script `npm run test:api`
+- [x] `MattermostApi` lưu token và gửi `Authorization: Bearer`
+- [x] Fixture `api` theo scope worker, báo lỗi rõ khi login thất bại
+- [x] `tests/api/auth.spec.ts`: 4 test, chuyển từ collection Postman
+
+| Test | Client | Kiểm tra | Request Postman tương ứng |
+|---|---|---|---|
+| `logs in with valid credentials` | `request` mới | `200`, có header `token`, đúng `username` | Happy path → Login |
+| `rejects invalid credentials` | `request` mới | `401` + `id` lỗi | Errors → Login with invalid credentials |
+| `rejects a request without a token` | `request` mới | `401` + `id` lỗi | Errors → Get current user without token |
+| `returns the logged-in user` | fixture `api` | `200`, đúng `username` | Happy path → Get current user |
+
+- Test login và test "không có token" dùng `request` có sẵn của Playwright: context mới cho mỗi test, chưa có cookie hay token. Fixture `api` (đã login) chỉ dùng khi việc đăng nhập **không phải** thứ đang được test.
+- Case login sai dùng `no-such-user`, không dùng tài khoản admin: Mattermost khóa tài khoản sau nhiều lần login sai, admin bị khóa thì cả bộ test sập.
+- README: lớp API chuyển sang 🟡, thêm `npm run test:api` vào hướng dẫn chạy.
+
+### Vấn đề gặp phải
+**`tsc` báo 3 lỗi trong `auth.spec.ts`:** 2 lỗi `TS2307: Cannot find module` và 1 lỗi `TS7031: Binding element 'api' implicitly has an 'any' type`.
+- **Nguyên nhân:** file bị tạo ở `tests/api/tests/api/auth.spec.ts`, lồng thừa 2 cấp thư mục. Có lẽ do terminal đang đứng sẵn trong `tests/api` mà vẫn gõ đường dẫn `tests/api/...`.
+- Import `'../../src/fixtures'` viết đúng cho file ở `tests/api/`. Từ `tests/api/tests/api/`, `../..` chỉ lên tới `tests/api/`, nên trỏ vào `tests/api/src/fixtures`, thư mục không tồn tại.
+- Lỗi `TS7031` là **lỗi kéo theo**: không đọc được fixtures thì TypeScript không biết `api` là `MattermostApi`, nên coi là `any`, mà `strict: true` cấm `any` ngầm.
+- **Cách sửa:** chuyển file về `tests/api/auth.spec.ts`.
+- **Bài học:** nhiều lỗi cùng lúc thì sửa lỗi đầu tiên trước, các lỗi sau thường là hệ quả. Chạy `pwd` trước khi tạo file.
+
+### 1. `MattermostApi`: các điểm TypeScript cần hiểu
+
+#### a. Vì sao `authHeaders()` trả về `Record<string, string>`
+`Record<K, V>` là kiểu có sẵn của TypeScript: **object có key kiểu `K`, value kiểu `V`**. `Record<string, string>` tương đương `{ [key: string]: string }`, đúng hình dạng của HTTP header.
+
+```ts
+{ Authorization: 'Bearer abc123' }   // has a token
+{}                                   // no token yet → still a valid Record<string, string>
+```
+
+Không dùng `{ Authorization: string }` vì:
+- Lúc chưa login, hàm trả về `{}`. Kiểu `{ Authorization: string }` bắt buộc phải có key đó nên sẽ báo lỗi.
+- Sau này cần thêm header khác thì không phải sửa kiểu.
+- Option `headers` của Playwright cũng dùng kiểu `{ [key: string]: string }`.
+
+#### b. `data: { login_id: username, password }`: cú pháp rút gọn
+Khi **tên key trùng tên biến**, chỉ cần viết một lần (shorthand property):
+```ts
+{ password }            // same as { password: password }
+```
+- `login_id` không rút gọn được vì key (`login_id`) và biến (`username`) khác tên.
+- Không đặt tên biến là `login_id`: code TypeScript dùng camelCase, tên kiểu snake_case chỉ nên xuất hiện ở chỗ giao tiếp với API.
+
+#### c. `login()` lưu token để dùng cho các lần gọi sau
+Hàm làm 2 việc tách biệt:
+```ts
+if (response.ok()) this.token = response.headers()['token'];  // 1. side effect: store token on the object
+return response;                                               // 2. hand the response back to the caller
+```
+1. **Lưu token:** `this.token` là thuộc tính của object, tồn tại cùng object. Các method gọi sau đọc token qua `authHeaders()`. Chỉ lưu khi login thành công.
+2. **`return response`:** không liên quan đến việc lưu token, chỉ trả response về để test kiểm tra.
+
+**Token gắn với từng object, không dùng chung giữa các object:**
+```ts
+const a = new MattermostApi(request);
+await a.login(user, pass);    // a.token = 'abc...'
+const b = new MattermostApi(request);
+await b.getMe();              // b.token is undefined → 401
+```
+- Fixture `api` tạo 1 object cho mỗi worker, nên các test trong cùng worker dùng chung token.
+- Test tự gọi `new MattermostApi(request)` thì được object mới, chưa có token.
+
+### 2. Fixture: đặt tên type theo scope
+`api` vẫn là tên fixture dùng trong test. `WorkerFixtures` là tên của **type chứa** fixture `api`.
+
+`base.extend` nhận 2 tham số kiểu, **vị trí có ý nghĩa**:
+```ts
+base.extend<TestFixtures, WorkerFixtures>({ ... })
+//          ↑ 1st: test-scoped   ↑ 2nd: worker-scoped
+```
+
+| Scope | Tạo khi nào | Hủy khi nào | Fixture |
+|---|---|---|---|
+| test | trước mỗi test | sau mỗi test | `loginPage`, `channelPage` |
+| worker | lần đầu một test trong worker cần đến | khi worker kết thúc | `api` |
+
+- Tên cũ `Pages` mô tả **nội dung**. Thêm `api` vào thì tên không còn đúng, vì `api` không phải page.
+- Playwright chia fixture theo **vòng đời**, nên đặt tên theo scope cho biết type nào đặt ở vị trí nào trong `extend<…, …>`.
+- Page object phải là test fixture vì cần `page` (scope test). **Fixture worker không được phụ thuộc fixture test**, vì nó sống lâu hơn. `api` chỉ cần `playwright` (scope worker) nên đặt ở scope worker được.
+
+### 3. `Record`: các chỗ hay dùng khác
+`Record<string, string>` dùng cho mọi object mà key và value đều là chuỗi.
+
+| Chỗ dùng | Ví dụ |
+|---|---|
+| Header của response | `response.headers()` trả về `{ [key: string]: string }` |
+| Biến môi trường | `process.env` là `Record<string, string \| undefined>`, nên `required()` trong `env.ts` phải kiểm tra `undefined` |
+| Query params | `this.request.get('/api/v4/users', { params })` |
+| Bảng tra cứu | slug channel → tên hiển thị trên sidebar |
+
+**Key cố định → dùng union type**, TypeScript bắt khai báo đủ mọi key:
+```ts
+type LoginError = 'invalidCredentials' | 'sessionExpired';
+
+const errorIds: Record<LoginError, string> = {
+    invalidCredentials: 'api.user.login.invalid_credentials_email_username',
+    sessionExpired: 'api.context.session_expired.app_error',
+};
+```
+Thêm key mới vào `LoginError` mà quên khai báo thì TypeScript báo lỗi ngay.
+
+Value không nhất thiết là `string`, ví dụ `Record<string, number>` cho status code mong đợi.
+
+**⚠️ Lưu ý:** với `Record<string, …>`, TypeScript tin rằng key nào cũng tồn tại:
+```ts
+const channelNames: Record<string, string> = { 'town-square': 'Town Square' };
+const name = channelNames['typo-here'];   // TS says: string. Reality: undefined
+name.toUpperCase();                        // 💥 crashes at runtime
+```
+- Biết trước danh sách key → dùng union type (nên ưu tiên).
+- Key thật sự động → bật `"noUncheckedIndexedAccess": true` trong `tsconfig.json`, TypeScript sẽ coi kết quả là `string | undefined`.
+
+### 4. `async` và `Promise<APIResponse>`
+```ts
+async login(username: string, password: string): Promise<APIResponse>
+```
+Nghĩa là: **"hàm `login` cần chờ server. Khi `await` nó, bạn nhận được một `APIResponse`."**
+
+| Phần | Ý nghĩa |
+|---|---|
+| `async` | Hàm có bước phải chờ (gọi mạng). Bên trong mới dùng được `await` |
+| `Promise<…>` | Hàm `async` luôn trả về `Promise`, giống **phiếu hẹn**: nhận ngay, có kết quả sau |
+| `APIResponse` | Kiểu của kết quả bên trong phiếu hẹn: một HTTP response của Playwright |
+
+```ts
+const p = api.login(user, pass);               // p: Promise<APIResponse>  → just the ticket
+const response = await api.login(user, pass);  // response: APIResponse → the actual result
+```
+
+**Lỗi hay gặp: quên `await`.**
+```ts
+const response = api.login(user, pass);   // forgot await
+response.status();                         // ❌ TS error: 'status' does not exist on type 'Promise<APIResponse>'
+```
+`strict: true` bắt được lỗi này. Rule ESLint `no-floating-promises` còn bắt được cả trường hợp gọi hàm mà không dùng kết quả.
+
+**Các method của `APIResponse`:**
+
+| Method | Trả về |
+|---|---|
+| `response.status()` | `200`, `401`… |
+| `response.ok()` | `true` nếu status từ 200 đến 299 |
+| `response.headers()` | `Record<string, string>` |
+| `await response.json()` | body đã chuyển thành object |
+| `await response.text()` | body dạng chuỗi |
+
+`json()` và `text()` cũng cần `await`, vì đọc body cũng là việc phải chờ.
+
+**Các kiểu trả về tương tự:**
+
+| Kiểu | Ý nghĩa | Ví dụ |
+|---|---|---|
+| `Promise<APIResponse>` | chờ xong nhận response | `login()`, `getMe()` |
+| `Promise<void>` | chờ xong, không trả gì | `sendMessage()`, `goto()` trong page object |
+| `Promise<string>` | chờ xong nhận chuỗi | ví dụ `getToken()` |
+
+`goto()`, `sendMessage()` trong page object không ghi kiểu trả về, TypeScript tự suy ra `Promise<void>`. Ghi rõ hay để tự suy đều được, chỉ cần thống nhất trong cả repo.
+
+### Kiểm tra kết quả
+```
+$ npm run typecheck          # no errors
+$ npm run test:api
+  ✓  [api] › tests/api/auth.spec.ts › Login via API › rejects a request without a token (29ms)
+  ✓  [api] › tests/api/auth.spec.ts › Login via API › rejects invalid credentials (32ms)
+  ✓  [api] › tests/api/auth.spec.ts › Login via API › logs in with valid credentials (411ms)
+  ✓  [api] › tests/api/auth.spec.ts › Login via API › returns the logged-in user (5ms)
+  4 passed (654ms)
+$ npm run test:web           # fixture file changed, web tests still pass
+  7 passed (7.8s)
+```
+4 test API chạy dưới 1 giây, trong khi 7 test web mất khoảng 8 giây. Đây là lý do nên tạo dữ liệu test qua API thay vì qua UI.
+
+### Tiếp theo
+- Thêm vào `MattermostApi`: lấy channel theo tên, tạo post, đọc post. Viết test API tương ứng với phần còn lại của collection Postman.
+- Khi test Playwright đã bao phủ hết collection: xóa `postman/`, `scripts/run-postman.mts` và script `test:postman`.
