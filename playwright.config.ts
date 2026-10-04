@@ -14,5 +14,6 @@ export default defineConfig({
     },
     projects: [
         { name: 'web', testDir: './tests/web', use: { ...devices['Desktop Chrome'] } },
+        { name: 'api', testDir: './tests/api' },
     ],
 });

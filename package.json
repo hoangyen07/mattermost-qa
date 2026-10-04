@@ -11,6 +11,7 @@
     "test": "playwright test",
     "test:web": "playwright test --project=web",
     "test:postman": "node scripts/run-postman.mts",
+    "test:api": "playwright test --project=api",
     "report": "playwright show-report",
     "typecheck": "tsc --noEmit"
   },
