@@ -987,3 +987,71 @@ Chạy lại toàn bộ test sau khi hạ TypeScript và sửa `auth.spec.ts`: k
 ### Tiếp theo
 - Thêm Prettier thành một đợt riêng, để commit format không bị trộn với commit lint.
 - Kiểm tra response lúc chạy bằng `zod`, thay cho `as`.
+
+---
+
+## Ghi chú — 04/10/2026: Thêm Prettier
+
+### Mục tiêu
+Tự động hóa việc format code, để không còn lỗi khoảng trắng, xuống dòng hay thiếu dòng trống cuối file (như ở `package.json` Ngày 7), và để review chỉ tập trung vào logic.
+
+### Đã làm
+- [x] Cài `prettier` 3.9.9
+- [x] `.prettierrc.json` + `.prettierignore`
+- [x] Script `npm run format` (sửa file) và `npm run format:check` (chỉ kiểm tra, dùng cho CI sau này)
+- [x] Format toàn repo một lần, trong một commit riêng
+- [x] README: thêm 2 script vào bảng (cả 2 ngôn ngữ)
+
+### Cấu hình: chọn theo phong cách code đang có
+Mục tiêu là **diff format nhỏ nhất**, không đổi phong cách code mà repo đang dùng.
+
+| Option | Giá trị | Vì sao |
+|---|---|---|
+| `tabWidth` | `4` | Code TypeScript đang dùng 4 dấu cách |
+| `singleQuote` | `true` | Code đang dùng dấu nháy đơn |
+| `semi` | `true` | Code đang có `;` |
+| `trailingComma` | `"all"` | Code đã có dấu phẩy cuối trong object/mảng nhiều dòng. Thêm dòng mới thì diff chỉ có 1 dòng |
+| `printWidth` | `120` | Mặc định 80 quá hẹp với tên test và locator dài. 120 là giá trị phổ biến |
+| JSON, YAML: `tabWidth: 2` | | `package.json` do npm quản lý, luôn dùng 2 dấu cách. YAML thường dùng 2 |
+| YAML: `singleQuote: false` | | File Docker Compose thường dùng nháy kép. Không có override này, Prettier sẽ đổi cả file sang nháy đơn |
+
+### Không format những gì (`.prettierignore`)
+| File | Lý do |
+|---|---|
+| `package-lock.json` | Do npm sinh ra |
+| `postman/` | Xuất từ ứng dụng Postman. Mỗi lần xuất lại sẽ mất format, nên format chỉ tạo diff thừa |
+| `*.md` | Prettier căn lại bảng Markdown bằng cách thêm dấu cách, tạo diff rất lớn ở README và devlog |
+
+Prettier 3 tự bỏ qua các file trong `.gitignore` (`node_modules/`, `playwright-report/`…).
+
+### Chỗ Prettier làm code khó đọc hơn: dùng `// prettier-ignore`
+Trong `scripts/run-postman.mts`, tham số của Newman được viết theo cặp `cờ, giá trị` trên cùng một dòng:
+```ts
+'--env-var', `username=${required('MM_ADMIN_USERNAME')}`,
+```
+Prettier tách mỗi phần tử thành một dòng riêng, nên không còn nhìn ra cờ nào đi với giá trị nào. Cách xử lý: đặt `// prettier-ignore` ngay trước mảng, kèm comment giải thích lý do. Chỉ nên dùng khi format tự động thực sự làm code khó đọc hơn, không dùng để né quy tắc.
+
+### Có cần `eslint-config-prettier` không?
+Không cần. Package này tắt các rule ESLint về format để không đụng nhau với Prettier. Nhưng `@eslint/js` và `typescript-eslint` bản mới không còn rule format trong bộ `recommended`. Đã kiểm tra: sau khi format, `npm run lint` vẫn không lỗi.
+
+### Commit format riêng và `.git-blame-ignore-revs`
+- Thay đổi format nằm trong **một commit riêng**, không trộn với commit thay đổi logic. Người review bỏ qua commit đó, các commit khác vẫn dễ đọc.
+- Commit format làm `git blame` hiện commit format cho các dòng bị đổi, thay vì commit thật sự viết ra dòng đó. Cách khắc phục: ghi hash của commit format vào `.git-blame-ignore-revs`. GitHub tự đọc file này. Trên máy cá nhân:
+  ```bash
+  git config blame.ignoreRevsFile .git-blame-ignore-revs
+  ```
+
+### Kiểm tra kết quả
+```
+$ npm run format:check       # All matched files use Prettier code style!
+$ npm run lint               # no errors
+$ npm run typecheck          # no errors
+$ docker compose -f docker/docker-compose.yml --env-file .env config -q   # valid
+$ npm run test:api           # 4 passed (662ms)
+$ npm run test:web           # 7 passed (7.1s)
+```
+Kiểm tra lại `docker compose config` vì Prettier có sửa file YAML: đổi khoảng cách trước comment và thêm dòng trống cuối file.
+
+### Tiếp theo
+- Kiểm tra response lúc chạy bằng `zod`, thay cho `as`.
+- Khi làm CI: chạy `format:check`, `lint`, `typecheck` trước bước test.

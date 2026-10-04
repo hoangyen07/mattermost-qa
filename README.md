@@ -96,6 +96,7 @@ npm run report          # open the HTML report
 | `npm run env:reset` | Stop and **delete all data** |
 | `npm run typecheck` | Type-check all TypeScript code |
 | `npm run lint` | Lint with ESLint (typescript-eslint + Playwright rules) |
+| `npm run format` / `format:check` | Format with Prettier / check formatting without changing files |
 | `npm run test:api` | Run the API tests (Playwright `request`, no browser) |
 | `npm run test:postman` | Run the Postman collection with Newman, using credentials from `.env` |
 
@@ -219,6 +220,7 @@ npm run report          # mở HTML report
 | `npm run env:reset` | Tắt và **xóa toàn bộ dữ liệu** |
 | `npm run typecheck` | Kiểm tra kiểu toàn bộ code TypeScript |
 | `npm run lint` | Kiểm tra code bằng ESLint (typescript-eslint + rule cho Playwright) |
+| `npm run format` / `format:check` | Format code bằng Prettier / chỉ kiểm tra, không sửa file |
 | `npm run test:api` | Chạy test API (Playwright `request`, không mở trình duyệt) |
 | `npm run test:postman` | Chạy Postman collection bằng Newman, lấy tài khoản từ `.env` |
 
