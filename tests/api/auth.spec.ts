@@ -1,6 +1,7 @@
 import { test, expect } from '../../src/fixtures';
 import { env } from '../../src/config/env';
 import { MattermostApi } from '../../src/api/MattermostApi';
+import type { ApiError, User } from '../../src/api/types';
 
 test.describe('Login via API', () => {
     // Built-in `request` fixture: a fresh, unauthenticated context per test
@@ -9,7 +10,7 @@ test.describe('Login via API', () => {
 
         expect(response.status()).toBe(200);
         expect(response.headers()['token']).toBeTruthy();
-        const user = await response.json();
+        const user = (await response.json()) as User;
         expect(user.username).toBe(env.adminUsername);
     });
 
@@ -18,20 +19,23 @@ test.describe('Login via API', () => {
 
         expect(response.status()).toBe(401);
         // Assert the error id, not the message: the id is stable, the text is not
-        expect((await response.json()).id).toBe('api.user.login.invalid_credentials_email_username');
+        const error = (await response.json()) as ApiError;
+        expect(error.id).toBe('api.user.login.invalid_credentials_email_username');
     });
 
     test('rejects a request without a token', async ({ request }) => {
         const response = await new MattermostApi(request).getMe();
 
         expect(response.status()).toBe(401);
-        expect((await response.json()).id).toBe('api.context.session_expired.app_error');
+        const error = (await response.json()) as ApiError;
+        expect(error.id).toBe('api.context.session_expired.app_error');
     });
 
     test('returns the logged-in user', async ({ api }) => {
         const response = await api.getMe();
 
         expect(response.status()).toBe(200);
-        expect((await response.json()).username).toBe(env.adminUsername);
+        const user = (await response.json()) as User;
+        expect(user.username).toBe(env.adminUsername);
     });
 });
