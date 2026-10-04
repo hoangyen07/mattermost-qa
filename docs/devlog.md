@@ -1105,6 +1105,58 @@ Không cần. Package này tắt các rule ESLint về format để không đụ
   ```
 - **Thử:** reload VS Code (`Cmd+Shift+P` → **Developer: Reload Window**). Mở một file `.ts`, thêm vài dấu cách thừa hoặc đổi `'` thành `"`, rồi `Cmd+S` → code phải tự về đúng format. Nếu không thấy gì, xem lỗi ở **View → Output → Prettier**.
 
+### Cách dùng ESLint và Prettier hằng ngày
+
+#### Prettier và ESLint khác nhau thế nào
+| | Prettier | ESLint |
+|---|---|---|
+| Có tự sửa code không? | Có (`npm run format`, hoặc `Cmd+S`) | Mặc định **không**, chỉ báo lỗi. `--fix` chỉ sửa được một số rule |
+| Có đổi cách code chạy không? | **Không bao giờ** | Không. Nhưng **lỗi nó tìm ra thường là lỗi logic thật**, và người viết phải sửa logic |
+| Mục đích | Code **trông** thống nhất | Code **đúng** hơn, ít bug hơn. Giống một người review tự động |
+
+Ví dụ lỗi logic mà ESLint tìm ra trong repo này:
+- **Quên `await`** (`no-floating-promises`): test chạy tiếp trước khi click hoặc gửi tin nhắn xong → test flaky, hoặc **pass sai**.
+- **`test.only`** (`no-focused-test`): lỡ commit thì các test khác **bị bỏ qua mà không ai biết**.
+- **`any` từ `response.json()`** (`no-unsafe-*`): gõ sai `user.usernmae` mà không bị báo lỗi.
+
+#### Lúc đang viết code (VS Code)
+| Công cụ | Cách thấy | Cần gì |
+|---|---|---|
+| Prettier | `Cmd+S` → code tự gọn | Extension Prettier + `formatOnSave` |
+| ESLint | Gạch đỏ **ngay khi gõ**, chưa cần lưu. Rê chuột vào để xem tên rule | Extension ESLint (`dbaeumer.vscode-eslint`) |
+
+`Cmd+Shift+M` mở bảng **Problems**, xem tất cả lỗi ESLint và TypeScript của các file đang mở.
+
+#### Bằng lệnh
+| Lệnh | Tác dụng |
+|---|---|
+| `npm run format:check` | Prettier: **chỉ kiểm tra**, liệt kê file sai format |
+| `npm run format` | Prettier: **sửa** toàn bộ repo |
+| `npx prettier --check <file>` / `--write <file>` | Prettier: kiểm tra / sửa 1 file |
+| `npm run lint` | ESLint: kiểm tra toàn bộ repo, in ra file, số dòng và tên rule |
+| `npx eslint <file>` | ESLint: kiểm tra 1 file |
+| `npm run lint -- --fix` | ESLint: tự sửa những lỗi sửa được. Lỗi như quên `await` thì **không tự sửa**, vì ESLint không đoán được ý người viết |
+
+`--` trong `npm run lint -- --fix` dùng để truyền `--fix` vào `eslint`, thay vì để npm hiểu `--fix` là tham số của npm.
+
+#### Thói quen trước khi commit
+```bash
+npm run format:check && npm run lint && npm run typecheck
+```
+`&&` nghĩa là chỉ chạy lệnh sau khi lệnh trước pass. Sau này CI cũng chạy đúng chuỗi lệnh này, trước bước test.
+
+#### Thử tận mắt
+**Prettier:**
+1. Trong một file `.ts`, đổi `'...'` thành `"..."` và thêm vài dấu cách thừa.
+2. `npx prettier --check <file>` → báo `[warn]`.
+3. `Cmd+S` → code tự trở lại như cũ. Chạy lại lệnh check → hết cảnh báo.
+
+**ESLint:**
+1. Xóa một `await` trước lời gọi API hoặc page object, hoặc thêm `.only` vào `test(`.
+2. VS Code hiện gạch đỏ ngay.
+3. `npx eslint <file>` → báo lỗi kèm tên rule (`no-floating-promises`, `no-focused-test`).
+4. Hoàn tác (`Cmd+Z`).
+
 ### Kiểm tra kết quả
 ```
 $ npm run format:check       # All matched files use Prettier code style!

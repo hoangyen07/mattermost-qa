@@ -100,6 +100,8 @@ npm run report          # open the HTML report
 | `npm run test:api` | Run the API tests (Playwright `request`, no browser) |
 | `npm run test:postman` | Run the Postman collection with Newman, using credentials from `.env` |
 
+Before committing: `npm run format:check && npm run lint && npm run typecheck`
+
 > 🚧 Planned: `npm run seed` to replace the manual `mmctl` commands.
 
 #### Mobile (Android)
@@ -223,6 +225,8 @@ npm run report          # mở HTML report
 | `npm run format` / `format:check` | Format code bằng Prettier / chỉ kiểm tra, không sửa file |
 | `npm run test:api` | Chạy test API (Playwright `request`, không mở trình duyệt) |
 | `npm run test:postman` | Chạy Postman collection bằng Newman, lấy tài khoản từ `.env` |
+
+Trước khi commit: `npm run format:check && npm run lint && npm run typecheck`
 
 > 🚧 Dự kiến: `npm run seed` thay cho các lệnh `mmctl` thủ công.
 
