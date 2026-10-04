@@ -33,7 +33,7 @@ Example: sending a message.
 
 | Layer | Tool | Directory | Status |
 |---|---|---|---|
-| API | Playwright `request` | `tests/api` | 🚧 Planned |
+| API | Playwright `request` | `tests/api`, `src/api` | 🟡 In progress (login, auth) |
 | Web UI | Playwright + Page Object Model | `tests/web`, `web/pages` | 🟡 In progress (login, messaging) |
 | Mobile | Mobilewright + Screen Object | `tests/mobile`, `mobile/screens` | 🚧 Planned |
 | Database | Postgres (`pg`) | `src/db` | 🚧 Planned |
@@ -85,6 +85,7 @@ docker exec mm-app /mattermost/bin/mmctl --local user create --username qaadmin 
 docker exec mm-app /mattermost/bin/mmctl --local team create --name qa-team --display-name "QA Team"
 docker exec mm-app /mattermost/bin/mmctl --local team users add qa-team qaadmin
 
+npm run test:api
 npm run test:web
 npm run report          # open the HTML report
 ```
@@ -94,9 +95,10 @@ npm run report          # open the HTML report
 | `npm run env:up` / `env:down` | Start / stop the environment (data is kept) |
 | `npm run env:reset` | Stop and **delete all data** |
 | `npm run typecheck` | Type-check all TypeScript code |
+| `npm run test:api` | Run the API tests (Playwright `request`, no browser) |
 | `npm run test:postman` | Run the Postman collection with Newman, using credentials from `.env` |
 
-> 🚧 Planned: `npm run seed` to replace the manual `mmctl` commands, and `npm run test:api`.
+> 🚧 Planned: `npm run seed` to replace the manual `mmctl` commands.
 
 #### Mobile (Android)
 1. Start an Android emulator, check it with `adb devices`, then set `MOBILE_DEVICE_ID` in `.env`.
@@ -153,7 +155,7 @@ Ví dụ: gửi tin nhắn.
 
 | Tầng | Công cụ | Thư mục | Trạng thái |
 |---|---|---|---|
-| API | Playwright `request` | `tests/api` | 🚧 Dự kiến |
+| API | Playwright `request` | `tests/api`, `src/api` | 🟡 Đang làm (đăng nhập, xác thực) |
 | Web UI | Playwright + Page Object Model | `tests/web`, `web/pages` | 🟡 Đang làm (login, gửi tin nhắn) |
 | Mobile | Mobilewright + Screen Object | `tests/mobile`, `mobile/screens` | 🚧 Dự kiến |
 | Database | Postgres (`pg`) | `src/db` | 🚧 Dự kiến |
@@ -205,6 +207,7 @@ docker exec mm-app /mattermost/bin/mmctl --local user create --username qaadmin 
 docker exec mm-app /mattermost/bin/mmctl --local team create --name qa-team --display-name "QA Team"
 docker exec mm-app /mattermost/bin/mmctl --local team users add qa-team qaadmin
 
+npm run test:api
 npm run test:web
 npm run report          # mở HTML report
 ```
@@ -214,9 +217,10 @@ npm run report          # mở HTML report
 | `npm run env:up` / `env:down` | Bật / tắt môi trường (giữ dữ liệu) |
 | `npm run env:reset` | Tắt và **xóa toàn bộ dữ liệu** |
 | `npm run typecheck` | Kiểm tra kiểu toàn bộ code TypeScript |
+| `npm run test:api` | Chạy test API (Playwright `request`, không mở trình duyệt) |
 | `npm run test:postman` | Chạy Postman collection bằng Newman, lấy tài khoản từ `.env` |
 
-> 🚧 Dự kiến: `npm run seed` thay cho các lệnh `mmctl` thủ công, và `npm run test:api`.
+> 🚧 Dự kiến: `npm run seed` thay cho các lệnh `mmctl` thủ công.
 
 #### Mobile (Android)
 1. Mở Android emulator, kiểm tra bằng `adb devices`, rồi điền `MOBILE_DEVICE_ID` trong `.env`.
