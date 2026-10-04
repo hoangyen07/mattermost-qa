@@ -1,0 +1,8 @@
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  // Markdown is in .prettierignore; skip it here too so tables are not reformatted on save
+  "[markdown]": {
+    "editor.formatOnSave": false
+  }
+}
