@@ -25,7 +25,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         async ({ playwright }, use) => {
             const request = await playwright.request.newContext({ baseURL: env.baseUrl });
             const api = new MattermostApi(request);
-            const response = await api.login(env.adminUsername, env.adminPassword);
+            const response = await api.users.login(env.adminUsername, env.adminPassword);
             if (!response.ok()) {
                 throw new Error(`Admin login failed: ${response.status()} ${await response.text()}`);
             }

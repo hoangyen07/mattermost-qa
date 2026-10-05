@@ -1,24 +1,13 @@
-import type { APIRequestContext, APIResponse } from '@playwright/test';
+import type { APIRequestContext } from '@playwright/test';
+import { ApiClient } from './ApiClient';
+import { UsersApi } from './UsersApi';
 
 export class MattermostApi {
-    private token?: string;
+    readonly users: UsersApi;
 
-    constructor(private readonly request: APIRequestContext) {}
-
-    private authHeaders(): Record<string, string> {
-        return this.token ? { Authorization: `Bearer ${this.token}` } : {};
-    }
-
-    async login(username: string, password: string): Promise<APIResponse> {
-        const response = await this.request.post('/api/v4/users/login', {
-            data: { login_id: username, password },
-        });
-
-        // The token is in the response header, not in the body
-        if (response.ok()) this.token = response.headers()['token'];
-        return response;
-    }
-    async getMe(): Promise<APIResponse> {
-        return this.request.get('/api/v4/users/me', { headers: this.authHeaders() });
+    constructor(request: APIRequestContext) {
+        // One shared client, so a login via `users` authenticates `posts` too
+        const client = new ApiClient(request);
+        this.users = new UsersApi(client);
     }
 }
