@@ -1171,3 +1171,67 @@ Kiểm tra lại `docker compose config` vì Prettier có sửa file YAML: đổ
 ### Tiếp theo
 - Kiểm tra response lúc chạy bằng `zod`, thay cho `as`.
 - Khi làm CI: chạy `format:check`, `lint`, `typecheck` trước bước test.
+
+---
+
+## Ngày 8 — 05/10/2026: Tách API client: lớp HTTP dùng chung + client theo nhóm
+
+### Mục tiêu
+Tách `MattermostApi` thành một lớp HTTP dùng chung và các client theo nhóm endpoint, chuẩn bị cho các test API còn lại của collection Postman. Đây là refactor: **đổi cấu trúc, không đổi hành vi**.
+
+### Đã làm
+- [x] `src/api/ApiClient.ts`: lớp HTTP. Lưu token, thêm tiền tố `/api/v4`, có `get` / `post` / `delete` tự gắn `Authorization: Bearer`
+- [x] `src/api/UsersApi.ts`: `login()` (lưu token vào `ApiClient` qua `setToken`), `getMe()`
+- [x] `MattermostApi` chỉ còn là facade: tạo **một** `ApiClient`, rồi đưa nó cho `users`
+- [x] Sửa các chỗ gọi cũ: `api.login(...)` → `api.users.login(...)`, `.getMe()` → `.users.getMe()` (trong `src/fixtures/index.ts` và `tests/api/auth.spec.ts`)
+- Chuyển sang Ngày 9: `ChannelsApi`, `PostsApi` và type `Channel` / `Post` / `NewPost`. Như vậy Ngày 8 chỉ là refactor, không thêm tính năng mới.
+
+### Cấu trúc mới
+```
+src/api/
+├── ApiClient.ts        # HTTP layer: token, /api/v4 prefix, get/post/delete
+├── UsersApi.ts         # /users/*
+├── MattermostApi.ts    # facade: api.users (Ngày 9: + api.channels, api.posts)
+└── types.ts
+```
+- `ApiClient` chỉ lo phần HTTP, không biết nghiệp vụ. Vì vậy `post(path, data?: unknown)` nhận body kiểu `unknown`. Kiểm tra type body là việc của các client theo nhóm.
+- Test gọi `api.users.login(...)`, sau này là `api.posts.create(...)`, chia nhóm giống tài liệu API của Mattermost.
+
+### Quyết định: composition, không dùng kế thừa
+Nếu viết `class UsersApi extends ApiClient`, mỗi object `UsersApi` và `PostsApi` sẽ có **`token` riêng**. Login qua `users` xong thì `posts` vẫn chưa có token, request sẽ bị `401`.
+
+Vì vậy `MattermostApi` tạo **một** `ApiClient` rồi truyền vào constructor của từng client. Token chỉ lưu ở một chỗ, login một lần là mọi nhóm đều dùng được.
+
+### Vấn đề gặp phải
+**1. Sau khi tách, `tsc` báo 5 lỗi và `eslint` báo 45 lỗi.**
+- `tsc`: `TS2339: Property 'login' does not exist on type 'MattermostApi'` (và `getMe`), ở `src/fixtures/index.ts` và `tests/api/auth.spec.ts`.
+- `eslint`: hàng loạt lỗi `no-unsafe-member-access`, `no-unsafe-call`, "type that cannot be resolved".
+- **Nguyên nhân:** `login` và `getMe` đã chuyển từ `MattermostApi` sang `UsersApi`, nhưng các chỗ gọi vẫn dùng tên cũ.
+- 45 lỗi ESLint là **lỗi kéo theo**: TypeScript không xác định được kết quả của `api.login(...)`, nên mọi thao tác sau đó (`.status()`, `.json()`, `expect(...)`) đều bị coi là "unsafe". Sửa xong 5 lỗi `tsc` thì cả 45 lỗi ESLint đều hết. Giống bài học Ngày 7: sửa lỗi gốc trước.
+- **Đây là lỗi mong đợi, không phải bug:** sau refactor, `tsc` liệt kê đúng những chỗ cần sửa. Đó là lợi ích của type.
+
+**2. Toàn bộ 11 test fail với `ECONNREFUSED 127.0.0.1:8065`.**
+- **Nguyên nhân:** Docker Desktop đang tắt nên Mattermost không chạy. Lỗi nằm ở môi trường, không phải ở code refactor.
+- **Cách sửa:** bật Docker Desktop, chạy `npm run env:up`.
+- **Bài học:** `ECONNREFUSED` nghĩa là không kết nối được tới server, chưa đi tới phần logic của test. Gặp lỗi này thì kiểm tra môi trường trước (`docker ps`, `curl .../api/v4/system/ping`), chưa cần đọc code.
+
+**3. `format:check` báo 2 file, `Cmd+S` không tự sửa.**
+- Lỗi: thừa dấu cách trong `auth.spec.ts`, thừa dòng trống cuối `MattermostApi.ts`.
+- **Nguyên nhân:** `.vscode/settings.json` đang có `"editor.formatOnSave": false` (thay đổi chưa commit), nên lưu file không chạy Prettier.
+- **Cách sửa:** chạy `npm run format`. Lệnh `format:check` vẫn bắt được lỗi dù editor không tự format, nên cần chạy nó trước khi commit.
+
+### Kiểm tra kết quả
+```
+$ npm run format:check       # All matched files use Prettier code style!
+$ npm run lint               # no errors
+$ npm run typecheck          # no errors
+$ npm run test:api           # 4 passed (621ms)
+$ npm run test:web           # 7 passed (7.6s)
+```
+Các test giữ nguyên số lượng và các assertion, chỉ đổi cách gọi client. Refactor không làm đổi hành vi.
+
+### Tiếp theo
+- Ngày 9:
+  - Viết `ChannelsApi` (`getByName`), `PostsApi` (`create`, `get`, `delete`) và type `Channel` / `Post` / `NewPost`.
+  - Viết `tests/api/posts.spec.ts`: lấy channel trong `beforeAll`, tạo post (`201`), đọc lại post (`200`), test thiếu `channel_id` (`403`, dùng `@ts-expect-error`). Xóa post trong `afterEach`.
+- Khi đủ 8/8 request của Postman: xóa `postman/`, `scripts/run-postman.mts`, script `test:postman`.
