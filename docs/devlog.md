@@ -1298,3 +1298,101 @@ Các test giữ nguyên số lượng và các assertion, chỉ đổi cách g�
   - Viết `ChannelsApi` (`getByName`), `PostsApi` (`create`, `get`, `delete`) và type `Channel` / `Post` / `NewPost`.
   - Viết `tests/api/posts.spec.ts`: lấy channel trong `beforeAll`, tạo post (`201`), đọc lại post (`200`), test thiếu `channel_id` (`403`, dùng `@ts-expect-error`). Xóa post trong `afterEach`.
 - Khi đủ 8/8 request của Postman: xóa `postman/`, `scripts/run-postman.mts`, script `test:postman`.
+
+---
+
+## Ngày 9 — 06–07/10/2026: `ChannelsApi`, `PostsApi` và test API cho post
+
+### Mục tiêu
+Thêm nhóm `channels` và `posts` vào facade `MattermostApi`, rồi chuyển các request còn lại của collection Postman sang test Playwright.
+
+### Đã làm
+- [x] `ChannelsApi.getByName(team, channel)`: `GET /teams/name/{team}/channels/name/{channel}`
+- [x] `PostsApi`: `create(post: NewPost)`, `get(postId)`, `delete(postId)`
+- [x] Type `Channel`, `Post`, `NewPost` trong `types.ts`
+- [x] `MattermostApi` có thêm `channels` và `posts`, cả 3 nhóm dùng chung một `ApiClient`
+- [x] Đặt tên field `client` cho cả 3 client theo nhóm, giống `UsersApi`
+- [x] `tests/api/posts.spec.ts`: 2 test
+
+| Test | Kiểm tra | Request Postman tương ứng |
+|---|---|---|
+| `beforeAll` | Lấy `town-square` → `200`, lưu `channelId` | Get channel by team and channel name |
+| `creates a post and reads it back` | Tạo → `201`. Đọc lại → `200`, đúng `id`, `message`, `channel_id` | Create post + Get created post |
+| `should return 403 for non-existent channel` | `403` + `api.context.permissions.app_error` | (gần với) Create post without channel_id |
+
+- `afterAll` xóa các post do test tạo ra (theo `createdPostIds`).
+- **Đối chiếu với Postman: 7/8 request.** Case "thiếu `channel_id`" chưa có test riêng. Case "channel không tồn tại" kiểm tra cùng hành vi (cùng `403`, cùng error id), nhưng gửi dữ liệu khác. Vì vậy **chưa xóa** `postman/`.
+
+### Quyết định
+**1. Tên hàm nói đúng việc hàm làm.** `getChannels` → `getByName` (hàm trả về **một** channel, không phải danh sách). `createPost` / `getPost` / `deletePost` → `create` / `get` / `delete`, vì gọi qua facade đã là `api.posts.create(...)`, không cần lặp chữ "post".
+
+**2. `NewPost` thay cho `Record<string, any>`.**
+- Với `any`, gõ nhầm `chanel_id` vẫn compile. Mattermost lại trả về `403` "không có quyền", nên người debug sẽ đi kiểm tra quyền thay vì tìm lỗi chính tả. Với `NewPost`, VS Code gạch đỏ ngay và gợi ý `Did you mean 'channel_id'?`.
+- Tách `NewPost` (body **gửi đi**) khỏi `Post` (response **nhận về**): khi tạo post chưa có `id`, `user_id`, `create_at`.
+- Lớp theo nhóm là nơi kiểm tra type body. `ApiClient` nhận `data: unknown` vì không biết nghiệp vụ (xem Ngày 8).
+
+**3. Bỏ `MM_CHANNEL` khỏi `.env`.** `town-square` là **dữ liệu test**, không thay đổi theo môi trường chạy (quyết định ở Ngày 5). Ngoài ra, thêm `required('MM_CHANNEL')` thì ai có `.env` cũ sẽ hỏng toàn bộ test, kể cả test web.
+
+**4. `beforeAll` lấy channel.** Channel ID không đổi giữa các test, gọi một lần là đủ. `beforeAll` dùng được fixture `api` vì fixture này có scope worker.
+
+**5. `afterAll` dọn dữ liệu.** `createdPostIds` thuộc riêng từng worker, hook chạy một lần khi worker xong. `afterEach` cũng đúng, chỉ là dọn sớm hơn.
+
+### Vấn đề gặp phải
+**1. `import { request } from 'https'`: import nhầm module.**
+- VS Code tự thêm import khi gõ `request`, nhưng lấy từ module `https` của Node, không phải Playwright.
+- Kết quả là lỗi `TS2345: ClientRequest is not assignable to ApiClient`.
+- **Bài học:** đọc lại các dòng import mà VS Code tự thêm.
+
+**2. Test tự `new ChannelsApi(...)`, bỏ qua facade.**
+- `ChannelsApi` cần một `ApiClient`, không nhận `request`. Kể cả khi truyền đúng, `ApiClient` mới tạo **chưa có token**, nên request bị `401`.
+- **Cách sửa:** dùng fixture `{ api }` (đã login sẵn) và gọi `api.channels.getByName(...)`. Test chỉ viết **cần làm gì**, không lo **client được tạo thế nào**.
+
+**3. File không có test nào, nên `beforeEach` không chạy.**
+- Khi mọi `test(...)` đều bị comment, Playwright báo `No tests found` và bỏ qua cả file. `console.log` trong hook không in ra gì.
+- **Bài học:** hook chỉ chạy **xung quanh** một test. Muốn kiểm tra phần setup thì cần ít nhất một `test(...)`.
+
+**4. Dọn dữ liệu sai: test vẫn xanh nhưng để lại post rác.**
+- `afterEach` phiên bản đầu **tạo một post mới rồi xóa chính post đó**. Post mà test tạo ra vẫn còn.
+- Phát hiện bằng cách gọi API đếm post trong `town-square`: còn **15 post "Hello, world!"** từ các lần chạy trước.
+- **Cách sửa:** test `push` ID vào `createdPostIds` ngay sau khi tạo post, hook xóa đúng các ID đó. Kiểm tra lại: sau 4 lần chạy, không còn post nào do Playwright tạo.
+- **Bài học:** test xanh chưa chắc đã đúng. Code dọn dữ liệu cần được kiểm tra bằng cách xem dữ liệu thật.
+- `push` phải đặt **ngay sau khi có `postId`**, trước các `expect` khác. Nếu đặt sau, `expect` fail sẽ dừng test và post không được ghi lại để xóa.
+
+**5. Đổi tên hàm, ESLint báo `Unsafe call of a type that could not be resolved`.**
+- Test gọi `api.posts.delete(id)` trong khi class vẫn tên `deletePost`. Lỗi gốc là `TS2339: Property 'delete' does not exist`, còn lỗi ESLint là lỗi kéo theo.
+- Lại thêm một lần đúng bài học Ngày 7 và 8: sửa lỗi `tsc` trước.
+
+**6. Thiếu `)` khiến toàn bộ `test:api` dừng.**
+- `}` thay vì `});` ở cuối một test. `tsc`, ESLint, Prettier và Playwright đều không đọc được file, nên cả 4 test trong `auth.spec.ts` cũng không chạy.
+- **Bài học:** lỗi `',' expected` thì kiểm tra dấu ngoặc ở **dòng ngay phía trên**.
+
+**7. Test dùng error id tự đoán, không khớp với server.**
+- Test "missing channel id" chờ `400` và `api.post.create.missing_channel_id.app_error`. Error id này không có trong response của server.
+- Gọi thử bằng `curl`:
+
+  | Body | Kết quả thật |
+  |---|---|
+  | `{"channel_id": "", "message": ...}` | `403` `api.context.permissions.app_error` |
+  | `{"message": ...}` (không có `channel_id`) | `403` `api.context.permissions.app_error` |
+
+- Đúng với phát hiện ở Ngày 6: server kiểm tra quyền **trước khi** kiểm tra body.
+- **Bài học:** status và error id trong assertion phải lấy từ **response thật** (Postman, `curl`, log), không đoán và không chép từ code gợi ý.
+- `channel_id: ''` là **gửi chuỗi rỗng**, khác với **thiếu field**. Hiện hai trường hợp cho cùng kết quả, nhưng ý nghĩa khác nhau.
+
+**8. `message` đặt ở cấp `describe` chỉ được tính một lần.**
+- `Date.now()` chạy lúc load file, nên mọi test dùng cùng một nội dung. Nếu `get` trả về nhầm post khác cùng nội dung, `expect(post.message)` vẫn pass.
+- **Cách sửa:** tạo `message` bên trong từng test.
+
+### Kiểm tra kết quả
+```
+$ npm run format:check       # All matched files use Prettier code style!
+$ npm run lint               # no errors
+$ npm run typecheck          # no errors
+$ npm run test:api           # 6 passed (716ms)
+$ npm run test:api -- --repeat-each=3   # 18 passed (1.5s), no flaky tests
+$ npm run test:web           # 7 passed (8.5s)
+```
+Sau các lần chạy, `town-square` không còn post nào bắt đầu bằng `Hello from Playwright API`.
+
+### Tiếp theo
+- Kiểm tra response lúc chạy bằng `zod`, thay cho `as`.
