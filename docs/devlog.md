@@ -1202,6 +1202,69 @@ Nếu viết `class UsersApi extends ApiClient`, mỗi object `UsersApi` và `Po
 
 Vì vậy `MattermostApi` tạo **một** `ApiClient` rồi truyền vào constructor của từng client. Token chỉ lưu ở một chỗ, login một lần là mọi nhóm đều dùng được.
 
+### Mối liên hệ giữa các lớp và lý do thiết kế
+```
+        test  (posts.spec.ts, auth.spec.ts)
+          │  only knows api.users / api.channels / api.posts
+          ▼
+┌──────────────────────┐
+│    MattermostApi     │  Facade: entry point, wires the parts together
+└──────────────────────┘
+     │        │        │      creates and holds
+     ▼        ▼        ▼
+ UsersApi ChannelsApi PostsApi  Domain: which endpoint, which body, what to name it
+     │        │        │      all receive the SAME instance
+     └────────┼────────┘
+              ▼
+┌──────────────────────┐
+│      ApiClient       │  HTTP: token, /api/v4 prefix, get/post/delete
+└──────────────────────┘
+              ▼
+   APIRequestContext (Playwright)  →  Mattermost server
+```
+
+| Lớp | Biết gì | Không biết gì |
+|---|---|---|
+| `ApiClient` | Gửi HTTP, gắn `Bearer`, tiền tố `/api/v4` | Login là gì, post là gì |
+| `UsersApi`, `ChannelsApi`, `PostsApi` | Đường dẫn endpoint, dạng body, tên hàm theo nghiệp vụ | Token lưu ở đâu, header gắn thế nào |
+| `MattermostApi` (facade) | Lắp các phần với nhau, gần như không có logic | |
+| Test | Cần **làm gì** (`api.posts.create(...)`) | Client được **tạo thế nào** |
+
+- Các nhóm **không tự tạo** `ApiClient` mà **nhận** nó qua constructor (*dependency injection*). Vì vậy cả 3 nhóm chắc chắn dùng chung một client.
+- **Tách theo lý do thay đổi** (*Single Responsibility*): mỗi lớp chỉ phải sửa khi có một loại thay đổi.
+  - Đổi cách xác thực, thêm log hay retry → chỉ sửa `ApiClient`.
+  - Mattermost đổi đường dẫn hoặc body của post → chỉ sửa `PostsApi`.
+  - Thêm nhóm API mới → thêm file mới, rồi thêm 2 dòng vào `MattermostApi`.
+
+**Hiệu quả:**
+
+| Tình huống | Không tách lớp (một file `MattermostApi` lớn) | Thiết kế hiện tại |
+|---|---|---|
+| Thêm 20 endpoint | File dài hàng trăm dòng, khó tìm | Mỗi nhóm một file nhỏ |
+| Thêm log cho mọi request khi debug | Sửa từng hàm | Sửa 3 hàm trong `ApiClient` |
+| Mattermost ra `/api/v5` | Tìm và thay ở mọi chỗ | Đổi `API_PREFIX` |
+| Đổi cấu trúc bên trong client | Sửa mọi test | Test không đổi, vì chỉ dùng facade |
+| Test phân quyền: admin và user thường | Token dùng chung, dễ bị lẫn | Tạo 2 `MattermostApi`, mỗi cái có `ApiClient` và token riêng |
+
+Token dùng chung **bên trong** một facade, nhưng tách biệt **giữa** các facade. Đây đúng là ranh giới mà test phân quyền cần:
+```ts
+const member = new MattermostApi(request);
+await member.users.login(memberName, memberPass);
+const res = await member.posts.delete(adminPostId); // expect 403
+```
+
+**Quy tắc khi viết test:**
+- Luôn đi qua facade. Không tự `new ChannelsApi(...)` hay `new ApiClient(...)` trong test: client tự tạo chưa có token nên bị `401`, và test bị phụ thuộc vào cách lắp ráp bên trong.
+- Dùng fixture `api` (đã login sẵn) khi đăng nhập **không phải** thứ đang được test.
+- Dùng `new MattermostApi(request)` (chưa login) khi **chính việc đăng nhập** là thứ đang được test, như trong `auth.spec.ts`.
+
+**Cái giá phải trả:**
+- Nhiều file hơn. Đọc `api.posts.create` phải mở 3 file mới thấy request thật được gửi.
+- Với 2–3 endpoint, thiết kế này hơi thừa. Nó chỉ đáng giá khi số endpoint tăng lên (factory dữ liệu, test xuyên tầng, phân quyền).
+- Phải giữ kỷ luật chỉ đi qua facade. Nếu test bỏ qua facade, các lợi ích ở trên mất hết.
+
+**Tóm lại:** `ApiClient` lo **cách gửi request**, các lớp `XxxApi` lo **gửi request gì**, `MattermostApi` lo **lắp ráp**, còn test chỉ viết **cần làm gì**.
+
 ### Vấn đề gặp phải
 **1. Sau khi tách, `tsc` báo 5 lỗi và `eslint` báo 45 lỗi.**
 - `tsc`: `TS2339: Property 'login' does not exist on type 'MattermostApi'` (và `getMe`), ở `src/fixtures/index.ts` và `tests/api/auth.spec.ts`.
