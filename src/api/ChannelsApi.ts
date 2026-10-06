@@ -2,9 +2,9 @@ import type { APIResponse } from '@playwright/test';
 import type { ApiClient } from './ApiClient';
 
 export class ChannelsApi {
-    constructor(private readonly apiClient: ApiClient) {}
+    constructor(private readonly client: ApiClient) {}
 
     async getByName(teamName: string, channelName: string): Promise<APIResponse> {
-        return this.apiClient.get(`/teams/name/${teamName}/channels/name/${channelName}`);
+        return this.client.get(`/teams/name/${teamName}/channels/name/${channelName}`);
     }
 }

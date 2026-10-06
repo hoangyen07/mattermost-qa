@@ -21,3 +21,8 @@ export type Post = {
     message: string;
     channel_id: string;
 };
+
+export type NewPost = {
+    channel_id: string;
+    message: string;
+};
