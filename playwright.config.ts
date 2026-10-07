@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import { env } from './src/config/env';
+import { ADMIN_STORAGE_STATE } from './src/config/auth';
 
 export default defineConfig({
     testDir: './tests',
@@ -13,7 +14,13 @@ export default defineConfig({
         screenshot: 'only-on-failure',
     },
     projects: [
-        { name: 'web', testDir: './tests/web', use: { ...devices['Desktop Chrome'] } },
+        { name: 'setup', testDir: './tests/setup', testMatch: /.*\.setup\.ts/ },
+        {
+            name: 'web',
+            testDir: './tests/web',
+            dependencies: ['setup'],
+            use: { ...devices['Desktop Chrome'], storageState: ADMIN_STORAGE_STATE },
+        },
         { name: 'api', testDir: './tests/api' },
     ],
 });
