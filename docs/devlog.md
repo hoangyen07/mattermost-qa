@@ -1396,3 +1396,158 @@ Sau các lần chạy, `town-square` không còn post nào bắt đầu bằng `
 
 ### Tiếp theo
 - Kiểm tra response lúc chạy bằng `zod`, thay cho `as`.
+
+---
+
+## Ngày 10 — 07–08/10/2026: Fixtures và `storageState` _(đang làm)_
+
+### Mục tiêu
+- **`storageState`:** login một lần, mọi test web dùng lại phiên đăng nhập đó, thay vì test nào cũng login qua UI.
+- **Fixture tự dọn dữ liệu:** chuyển cách dọn post (`createdPostIds` + `afterAll` ở Ngày 9) vào một fixture, để test mới không phải tự viết lại.
+
+### Đã làm
+**Phần A: `storageState`**
+- [x] Bước 0: đo thời gian trước/sau (kết quả ở phần Đo thời gian). Ngày 07/10 chưa đo được vì Docker đang tắt (`ERR_CONNECTION_REFUSED`); đo lại ngày 08/10.
+- [x] `src/config/auth.ts`: `ADMIN_STORAGE_STATE = '.auth/admin.json'`, để đường dẫn chỉ nằm ở một chỗ
+- [x] `tests/setup/auth.setup.ts`: login qua UI, chờ URL `/channels/`, rồi `page.context().storageState({ path })`
+- [x] `playwright.config.ts`: project `setup`; project `web` có `dependencies: ['setup']` và `storageState: ADMIN_STORAGE_STATE`
+- [x] `message.spec.ts`: bỏ các bước login và fixture `loginPage`
+- [x] `login.spec.ts`: `test.use({ storageState: { cookies: [], origins: [] } })`
+
+**Phần B: fixture `createPost`**
+- [ ] Factory fixture trong `src/fixtures/index.ts`: tạo post, ghi lại ID, xóa sau `use`
+- [ ] `posts.spec.ts` dùng `createPost`, bỏ `createdPostIds` và `afterAll`
+- [ ] (Không bắt buộc) Test xuyên tầng: tạo post bằng API, kiểm tra trên UI
+
+### Kiến thức
+**`storageState` là gì.** Sau khi login, trình duyệt giữ phiên đăng nhập ở **cookie** (Mattermost dùng `MMAUTHTOKEN`, `MMUSERID`, `MMCSRF`) và **localStorage**. `storageState` lưu cả hai vào một file JSON. Test sau mở trình duyệt với file đó là đã đăng nhập sẵn.
+
+```
+setup project (runs first, once)        web project (depends on setup)
+┌──────────────────────────┐            ┌──────────────────────────────┐
+│ auth.setup.ts            │  writes    │ every test opens the browser │
+│ log in via UI → save     │ ─────────▶ │ with .auth/admin.json        │
+│ .auth/admin.json         │            │ → already logged in          │
+└──────────────────────────┘            └──────────────────────────────┘
+```
+
+**Test lấy cookie bằng cách nào, khi không còn bước login?** Test không đọc file. Playwright nạp file khi tạo fixture, rồi trình duyệt tự gửi cookie:
+```
+playwright.config.ts → project web: use: { storageState: '.auth/admin.json' }
+        ▼
+fixture `context`     = browser.newContext({ storageState })  ← reads the file, loads cookies + localStorage
+        ▼
+fixture `page`        = context.newPage()                      ← cookies already in place
+        ▼
+fixture `channelPage` = new ChannelPage(page)
+        ▼
+channelPage.goto(...) → the browser attaches Cookie: MMAUTHTOKEN=... → server finds the session → logged-in page
+```
+- `use: { storageState }` không phải code chạy trong test. Nó là **tùy chọn** Playwright dùng khi tạo fixture `context`.
+- Mỗi test có một `context` mới, nhưng tất cả đều nạp từ cùng một file.
+- `dependencies: ['setup']` đảm bảo file đã được ghi xong trước khi test web đầu tiên tạo `context`.
+- **Phiên đăng nhập thật nằm ở server.** `MMAUTHTOKEN` chỉ là chìa khóa. Mọi test web dùng chung một chìa khóa, nên dùng chung **một session**. Nếu có test bấm Logout, server xóa session đó, và mọi test khác bị đẩy về trang login. Test logout sau này phải login riêng.
+- Tự kiểm tra: `console.log(await page.context().cookies())` ở đầu test (thấy `MMAUTHTOKEN` trước khi `goto`), hoặc xem `Cookie` trong Request Headers ở tab Network của trace.
+
+**Những điểm cần chú ý:**
+- **Chờ login xong rồi mới lưu.** Phải có `expect(page).toHaveURL(/\/channels\//)` trước `storageState(...)`. Thiếu dòng này, có thể lưu lúc server chưa trả cookie về, và file sẽ chứa trạng thái chưa đăng nhập. Đây là loại lỗi gây test flaky.
+- **Lưu được cả localStorage:** cờ `__landingPageSeen__` do `LoginPage.goto()` đặt cũng được lưu, nên test sau không gặp trang "view in desktop app".
+- **`dependencies: ['setup']`:** chạy `test:web` thì `setup` tự chạy trước. Nếu setup fail, test web báo **did not run**, thay vì fail hàng loạt với lỗi khó hiểu.
+- **Project `api` không phụ thuộc `setup`**, vì nó login bằng fixture `api`. `test:api` không chậm đi.
+- **`storageState` áp dụng cho cả project.** Những test cần trạng thái khác (login, logout, phân quyền) phải tự ghi đè bằng `test.use(...)`.
+- **Bảo mật:** `.auth/admin.json` chứa `MMAUTHTOKEN`. Ai có token này là đăng nhập được bằng tài khoản admin. Không commit và không gửi file này cho ai.
+
+**Factory fixture.** Giá trị đưa vào `use(...)` là **một hàm**, nên test có thể tạo nhiều post tùy ý. Fixture nhớ hết các ID và xóa sau `use`, kể cả khi test fail:
+```ts
+createPost: async ({ api }, use) => {
+    const created: string[] = [];
+    await use(async (message, channelId) => {
+        const response = await api.posts.create({ channel_id: channelId, message });
+        expect(response.status()).toBe(201);
+        const post = (await response.json()) as Post;
+        created.push(post.id); // recorded right after creating
+        return post;
+    });
+    for (const id of created) await api.posts.delete(id);
+},
+```
+- Code **trước `use`** là setup, code **sau `use`** là cleanup.
+- Ngày 9 cho thấy phần dọn dữ liệu rất dễ viết sai (tạo rồi xóa nhầm post, `push` quá muộn). Đưa nó vào fixture thì chỉ cần viết đúng **một lần**.
+- Câu hỏi cần tự trả lời: fixture này nên có scope **test** hay **worker**? Test 403 có nên dùng `createPost` không, khi trong fixture đã có `expect(...).toBe(201)`?
+
+### Vấn đề gặp phải
+**1. Tạo project `setup` nhưng chưa nối với project `web`.**
+- Project `setup` đã có, nhưng `web` chưa có `dependencies` và `storageState`.
+- Kết quả: chạy `test:web` thì setup không chạy, `.auth/` không được tạo, và `console.log(cookies)` trong test in ra `[]`.
+- **Cách sửa:** thêm `dependencies: ['setup']` và `use: { storageState: ADMIN_STORAGE_STATE }` cho `web`.
+
+**2. `toHaveURL` chạy trước khi mở trang.**
+- Sau khi bỏ login, `message.spec.ts` vẫn còn `expect(page).toHaveURL(/\/channels\//)` ở đầu test. Trước đây dòng này kiểm tra **kết quả của bước login**. Khi không còn login, trang vẫn là `about:blank`, nên URL không bao giờ khớp.
+- **Cách sửa:** kiểm tra URL **sau** `channelPage.goto(...)`. Như vậy, nếu `storageState` hỏng và bị đẩy về `/login`, test fail ngay tại dòng này với URL thật là `/login`, thay vì timeout 30 giây ở bước gửi tin nhắn.
+- **Bài học:** khi xóa một bước, phải xem lại các assertion đang kiểm tra kết quả của bước đó.
+
+**3. Bỏ login nhưng vẫn giữ fixture `loginPage` trong tham số.**
+- ESLint báo `'loginPage' is defined but never used` (`no-unused-vars`).
+- **Cách sửa:** fixture không dùng thì bỏ khỏi `{ }`. Xóa luôn code bị comment và `console.log`; git đã lưu lịch sử.
+
+**4. 5 test trong `login.spec.ts` timeout 30 giây sau khi có `storageState`.**
+- Lỗi: `locator.fill: Test timeout of 30000ms exceeded.`
+- **Nguyên nhân:** `storageState` áp dụng cho cả project `web`, nên test login cũng mở trình duyệt đã đăng nhập. `loginPage.goto()` vẫn mở `/login`, nhưng Mattermost thấy cookie hợp lệ nên **chuyển hướng** sang trang channel. Ô "Email or Username" không tồn tại ở đó, và `fill` chờ đến hết 30 giây.
+- Đây không phải bug của Mattermost: người dùng đã đăng nhập mà mở `/login` thì được đưa vào app là đúng. Cái sai là **trạng thái ban đầu của test**.
+- **Cách sửa:** trong `login.spec.ts`, ghi đè bằng trạng thái trống: `test.use({ storageState: { cookies: [], origins: [] } })`.
+- **Bài học:** lỗi do sai trạng thái thường không báo ngay mà biểu hiện thành **timeout**, vì Playwright chỉ chờ locator xuất hiện và không biết trang đã bị chuyển hướng. Gặp timeout thì xem ảnh chụp màn hình hoặc URL trước tiên.
+
+### Kiểm tra kết quả
+```
+$ npm run format:check                    # All matched files use Prettier code style!
+$ npm run lint                            # no errors
+$ npm run typecheck                       # no errors
+$ npm run test:api                        # 6 passed (689ms), setup does NOT run
+$ npm run test:web -- --repeat-each=3     # 22 passed (14.0s) = 1 setup + 7 × 3, no flaky tests
+```
+- `.auth/admin.json` có cookie `MMAUTHTOKEN`, `MMUSERID`, `MMCSRF`, và localStorage của `http://localhost:8065` (có `__landingPageSeen__`).
+- `git check-ignore -v .auth/admin.json` → `.gitignore:5:.auth/`. File không thể bị commit nhầm.
+
+### Đo thời gian
+**Cách đo:** bản "trước" là commit `43cfb5e` (chưa có `storageState`), chạy trong một git worktree tạm, để không phải `git stash` code đang sửa. Mọi lần chạy đều pass. Không dùng lần chạy có test fail, vì test fail có thể kết thúc sớm hoặc chờ timeout 30 giây.
+
+**Tổng thời gian, chạy song song (mặc định), 3 lần:**
+
+| | Lần 1 | Lần 2 | Lần 3 | **Median** |
+|---|---|---|---|---|
+| Trước (7 test) | 7.6s | 7.4s | 7.6s | **7.6s** |
+| Sau (1 setup + 7 test) | 7.6s | 8.0s | 7.5s | **7.6s** |
+
+**Chạy tuần tự (`--workers=1`), thời gian từng test:**
+
+| Test | Trước | Sau |
+|---|---|---|
+| `log in as admin` (setup) | — | 2.6s |
+| 5 test login | 10.6s | 10.6s |
+| `sends a message in a channel` | **4.2s** | **2.1s** |
+| `sends a message after switching channel...` | **4.9s** | **2.2s** |
+| **Tổng** | **20.0s** | **18.0s** |
+
+**Nhận xét:**
+1. **Mỗi test gửi tin nhắn nhanh gấp đôi:** 4.2s → 2.1s, 4.9s → 2.2s. Tiết kiệm tổng cộng 4.8 giây, tức khoảng **2.4 giây cho mỗi lần login qua UI** được bỏ đi.
+2. **Chạy tuần tự chỉ nhanh hơn 2 giây:** tiết kiệm 4.8 giây, trừ đi 2.6 giây của setup.
+3. **Chạy song song không nhanh hơn chút nào**, vì:
+   - Setup phải chạy xong trước (`dependencies`) thì test web mới bắt đầu. 2.6 giây này bị cộng thẳng vào tổng thời gian.
+   - Khi chạy song song, tổng thời gian phụ thuộc vào test chậm nhất. Test chậm nhất giảm từ 4.9 giây xuống khoảng 2.6 giây, phần rút ngắn này gần bằng thời gian setup cộng thêm.
+   - 5 test login vẫn phải login qua UI, vì login là thứ đang được test. Chỉ 2 test được hưởng lợi.
+4. **Kết luận:** với 2 test, `storageState` gần như **hòa vốn** về thời gian. Đây là khoản đầu tư cho sau này:
+   - Chi phí setup cố định (một lần login), còn mỗi test web mới tiết kiệm khoảng 2.4 giây. Với 20 test cần đăng nhập, chạy tuần tự sẽ tiết kiệm khoảng 45 giây.
+   - Ít bước login qua UI hơn thì ít chỗ có thể gây flaky hơn, và ít request login dồn lên server hơn (tránh khóa tài khoản, xem Ngày 7).
+   - Test gửi tin nhắn chỉ kiểm tra đúng việc gửi tin nhắn. Nếu màn hình login có lỗi, chỉ test login fail.
+
+**Bài học đo lường:** nếu chỉ nhìn tổng thời gian khi chạy song song, sẽ kết luận sai rằng thay đổi "không có tác dụng". Phải đo **từng test** và **chạy tuần tự** mới thấy rõ tác động. Mỗi bên chạy 3 lần và lấy median, vì lần đầu thường chậm hơn do server và trình duyệt còn "lạnh".
+
+### Thử phá để hiểu
+- [ ] Sửa mật khẩu trong setup cho sai → 7 test web báo **did not run**
+- [x] Không ghi đè `storageState` trong `login.spec.ts` → 5 test login timeout (Vấn đề 4)
+- [ ] Xóa `.auth/`, chạy `npx playwright test --project=web --no-deps` → lỗi không tìm thấy file
+- [x] Mở `.auth/admin.json` xem cookie và localStorage được lưu thế nào
+
+### Tiếp theo
+- Commit Phần A (`storageState`).
+- Phần B: fixture `createPost`, commit riêng.
