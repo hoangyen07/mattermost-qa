@@ -2,6 +2,8 @@ import { test, expect } from '../../src/fixtures';
 import { env } from '../../src/config/env';
 
 test.describe('Login', () => {
+    test.use({ storageState: { cookies: [], origins: [] } });
+
     test('logs in with valid credentials', async ({ page, loginPage }) => {
         await loginPage.goto();
         await loginPage.login(env.adminUsername, env.adminPassword);
