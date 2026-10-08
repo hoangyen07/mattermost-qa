@@ -1399,7 +1399,7 @@ Sau các lần chạy, `town-square` không còn post nào bắt đầu bằng `
 
 ---
 
-## Ngày 10 — 07–08/10/2026: Fixtures và `storageState` _(đang làm)_
+## Ngày 10 — 07–09/10/2026: Fixtures và `storageState`
 
 ### Mục tiêu
 - **`storageState`:** login một lần, mọi test web dùng lại phiên đăng nhập đó, thay vì test nào cũng login qua UI.
@@ -1415,9 +1415,10 @@ Sau các lần chạy, `town-square` không còn post nào bắt đầu bằng `
 - [x] `login.spec.ts`: `test.use({ storageState: { cookies: [], origins: [] } })`
 
 **Phần B: fixture `createPost`**
-- [ ] Factory fixture trong `src/fixtures/index.ts`: tạo post, ghi lại ID, xóa sau `use`
-- [ ] `posts.spec.ts` dùng `createPost`, bỏ `createdPostIds` và `afterAll`
-- [ ] (Không bắt buộc) Test xuyên tầng: tạo post bằng API, kiểm tra trên UI
+- [x] Factory fixture `createPost` trong `src/fixtures/index.ts`: tạo post, ghi lại ID, xóa sau `use`. Scope **test** (mặc định), nên post bị xóa ngay sau từng test
+- [x] `posts.spec.ts` dùng `createPost`, bỏ `createdPostIds` và `afterAll`. Test không còn tự lo việc dọn dữ liệu
+- [x] Test 403 vẫn gọi `api.posts.create` trực tiếp, không dùng `createPost`
+- [ ] (Không bắt buộc, để sau) Test xuyên tầng: tạo post bằng API, kiểm tra trên UI
 
 ### Kiến thức
 **`storageState` là gì.** Sau khi login, trình duyệt giữ phiên đăng nhập ở **cookie** (Mattermost dùng `MMAUTHTOKEN`, `MMUSERID`, `MMCSRF`) và **localStorage**. `storageState` lưu cả hai vào một file JSON. Test sau mở trình duyệt với file đó là đã đăng nhập sẵn.
@@ -1473,9 +1474,12 @@ createPost: async ({ api }, use) => {
 ```
 - Code **trước `use`** là setup, code **sau `use`** là cleanup.
 - Ngày 9 cho thấy phần dọn dữ liệu rất dễ viết sai (tạo rồi xóa nhầm post, `push` quá muộn). Đưa nó vào fixture thì chỉ cần viết đúng **một lần**.
-- Câu hỏi cần tự trả lời: fixture này nên có scope **test** hay **worker**? Test 403 có nên dùng `createPost` không, khi trong fixture đã có `expect(...).toBe(201)`?
+- **Scope test hay worker?** Chọn **test** (mặc định): cleanup sau `use` chạy ngay sau từng test. Nếu chọn worker, post chỉ bị xóa khi worker kết thúc. Fixture scope test được phép dùng fixture scope worker (`api`), chiều ngược lại thì không.
+- **Test 403 có dùng `createPost` không?** Không. Trong fixture có `expect(...).toBe(201)`, nên nếu dùng, fixture sẽ fail trước khi test kịp kiểm tra `403`. Fixture dùng để **tạo dữ liệu chuẩn bị** (happy path), không dùng cho request mà chính test đang kiểm tra.
 
 ### Vấn đề gặp phải
+**Phần A: `storageState`**
+
 **1. Tạo project `setup` nhưng chưa nối với project `web`.**
 - Project `setup` đã có, nhưng `web` chưa có `dependencies` và `storageState`.
 - Kết quả: chạy `test:web` thì setup không chạy, `.auth/` không được tạo, và `console.log(cookies)` trong test in ra `[]`.
@@ -1497,16 +1501,89 @@ createPost: async ({ api }, use) => {
 - **Cách sửa:** trong `login.spec.ts`, ghi đè bằng trạng thái trống: `test.use({ storageState: { cookies: [], origins: [] } })`.
 - **Bài học:** lỗi do sai trạng thái thường không báo ngay mà biểu hiện thành **timeout**, vì Playwright chỉ chờ locator xuất hiện và không biết trang đã bị chuyển hướng. Gặp timeout thì xem ảnh chụp màn hình hoặc URL trước tiên.
 
+**Phần B: fixture `createPost`**
+
+**5. Khai báo type không khớp với phần thân fixture.**
+- Type khai báo `createPost(message, team, channel): Promise<void>`, trong khi phần thân nhận `(message, channelId)` và trả về `post`.
+- Kéo theo 10 lỗi `tsc`: `TS2345` (phần thân không khớp type), `TS2554: Expected 3 arguments, but got 2`, `Property 'id' does not exist on type 'void'`…
+- **Cách sửa:** sửa type cho khớp với phần thân: 2 tham số, trả về `Promise<Post>`.
+
+**6. `Cannot find name 'expect'` trong `src/fixtures/index.ts`.**
+- Fixture dùng `expect`, nhưng dòng import chỉ có `test as base`.
+- Cuối file có `export { expect } from '@playwright/test'`, nhưng dòng đó chỉ **chuyển tiếp** `expect` cho file khác dùng, **không tạo biến `expect`** trong chính file này.
+- **Cách sửa:** `import { test as base, expect } from '@playwright/test'`.
+
+**7. Lỗi lint `unbound-method`: khai báo fixture kiểu method.**
+- `createPost(message: string, channelId: string): Promise<Post>;` là kiểu **method**. ESLint báo lỗi ở chỗ test lấy `{ createPost }` ra, vì method tách khỏi object có thể mất `this`.
+- Fixture là một **giá trị kiểu hàm** được truyền vào test, không dùng `this`.
+- **Cách sửa:** khai báo dạng **property**: `createPost: (message: string, channelId: string) => Promise<Post>;`.
+- Lỗi được báo ở `posts.spec.ts`, nhưng nguyên nhân nằm ở cách khai báo type trong `index.ts`.
+
+**Destructuring là gì.** Là cú pháp lấy thuộc tính ra khỏi object và gán vào biến cùng tên:
+```ts
+const { api, createPost } = fixtures;
+// is the same as
+const api = fixtures.api;
+const createPost = fixtures.createPost;
+```
+Viết trong tham số của hàm cũng vậy. Playwright gọi hàm test với **một object chứa mọi fixture**, và `{ api, createPost }` lấy ra 2 thuộc tính cần dùng:
+```ts
+test('...', async ({ api, createPost }) => { ... });
+// roughly the same as
+test('...', async (fixtures) => {
+    const api = fixtures.api;
+    const createPost = fixtures.createPost;
+});
+```
+- Với Playwright thì **bắt buộc** phải viết dạng `{ ... }`. Playwright đọc các **tên** trong `{ }` để biết cần chuẩn bị fixture nào. Không ghi `createPost` thì fixture đó không chạy, và không có cleanup. Viết `async (fixtures) =>` thì Playwright báo lỗi `First argument must use the object destructuring pattern`.
+- Đổi tên khi lấy ra: `{ createPost: makePost }`, rồi dùng `makePost(...)`.
+
+**Vì sao destructuring một method có thể hỏng: mất `this`.** Bên trong method, `this` là object **đứng trước dấu chấm** lúc gọi. Lấy method ra khỏi object rồi gọi riêng thì không còn object nào đứng trước dấu chấm, nên `this` là `undefined`:
+```ts
+class Counter {
+    count = 0;
+    increment() {
+        this.count++;
+    }
+}
+
+const counter = new Counter();
+counter.increment(); // OK: `this` is counter
+
+const { increment } = counter; // destructuring takes the method out of the object
+increment(); // TypeError: Cannot read properties of undefined (reading 'count')
+```
+Rule `@typescript-eslint/unbound-method` bắt đúng trường hợp này: **lấy một method ra khỏi object mà không gọi ngay**. Destructuring `{ createPost }` là một cách lấy ra như vậy.
+
+**Method và property kiểu hàm khác nhau ở đâu.** Trong khai báo type, hai cách viết nhận cùng loại giá trị, nhưng nói lên **ý định khác nhau**:
+
+| Cách viết | Ý nghĩa | Lấy ra khỏi object bằng destructuring |
+|---|---|---|
+| `createPost(message: string): Promise<Post>;` | Method: thuộc về object, có thể dùng `this` | ESLint báo `unbound-method` |
+| `createPost: (message: string) => Promise<Post>;` | Property có giá trị là một hàm độc lập, không dựa vào `this` | An toàn |
+
+Fixture `createPost` là arrow function được truyền vào `use(...)`. Nó không dùng `this`, chỉ dùng `api` và `created` có sẵn từ phạm vi bên ngoài (closure). Vì vậy khai báo dạng property là **đúng với bản chất**, không phải chỉ để tắt cảnh báo của ESLint.
+
+Các fixture khác như `loginPage`, `channelPage`, `api` không bị lỗi này vì chúng là **object**, không phải hàm. Test gọi `channelPage.goto(...)`, với object đứng trước dấu chấm, nên `this` vẫn đúng.
+
+**8. Sửa lỗi biến trùng tên làm mất assertion: test xanh nhưng không kiểm tra gì.**
+- `post` bị khai báo 2 lần (post vừa tạo và post đọc lại). Khi sửa, dòng đọc body của response `GET` bị xóa mất.
+- Kết quả: `expect(post.id).toBe(postId)` với `postId = post.id`, **so sánh một giá trị với chính nó**, nên luôn đúng. Các assertion còn lại kiểm tra response **tạo** post, không phải response **đọc lại**. Test vẫn xanh.
+- **Cách sửa:** đọc body của `GET` vào biến `fetchedPost`, rồi so sánh `fetchedPost.id`, `message`, `channel_id` với post vừa tạo.
+- **Bài học:** một assertion không bao giờ fail thì không kiểm tra được gì. Cách tự kiểm tra: tạm sửa giá trị mong đợi cho sai, test phải fail.
+
 ### Kiểm tra kết quả
 ```
 $ npm run format:check                    # All matched files use Prettier code style!
 $ npm run lint                            # no errors
 $ npm run typecheck                       # no errors
-$ npm run test:api                        # 6 passed (689ms), setup does NOT run
+$ npm run test:api -- --repeat-each=3     # 18 passed (1.5s), setup does NOT run
+$ npm run test:web                        # 8 passed (7.8s) = 1 setup + 7
 $ npm run test:web -- --repeat-each=3     # 22 passed (14.0s) = 1 setup + 7 × 3, no flaky tests
 ```
 - `.auth/admin.json` có cookie `MMAUTHTOKEN`, `MMUSERID`, `MMCSRF`, và localStorage của `http://localhost:8065` (có `__landingPageSeen__`).
 - `git check-ignore -v .auth/admin.json` → `.gitignore:5:.auth/`. File không thể bị commit nhầm.
+- Fixture `createPost` dọn đúng: sau 3 lần chạy `test:api`, gọi API đếm post trong `town-square` → còn **0** post bắt đầu bằng `Hello from Playwright API`.
 
 ### Đo thời gian
 **Cách đo:** bản "trước" là commit `43cfb5e` (chưa có `storageState`), chạy trong một git worktree tạm, để không phải `git stash` code đang sửa. Mọi lần chạy đều pass. Không dùng lần chạy có test fail, vì test fail có thể kết thúc sớm hoặc chờ timeout 30 giây.
@@ -1549,5 +1626,6 @@ $ npm run test:web -- --repeat-each=3     # 22 passed (14.0s) = 1 setup + 7 × 3
 - [x] Mở `.auth/admin.json` xem cookie và localStorage được lưu thế nào
 
 ### Tiếp theo
-- Commit Phần A (`storageState`).
-- Phần B: fixture `createPost`, commit riêng.
+- Test xuyên tầng: tạo post bằng `createPost`, mở `town-square` trên UI và kiểm tra post hiện ra. Đã có đủ `createPost` và `storageState`.
+- Case "thiếu `channel_id`" (còn treo từ Ngày 9), sau đó xóa `postman/`.
+- Fixture tạo channel riêng cho từng test, thay cho việc dùng chung `town-square`.
