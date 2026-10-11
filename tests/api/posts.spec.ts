@@ -23,11 +23,21 @@ test.describe('Posts via API', () => {
         expect(fetchedPost.channel_id).toBe(channelId);
     });
 
+    // Mattermost checks permissions before validating channel_id, so an unknown
+    // or missing channel returns 403 instead of 400/404 (see devlog, day 6)
     test('should return 403 for non-existent channel', async ({ api }) => {
         const response = await api.posts.create({
             channel_id: 'non-existent-channel-id',
             message: 'Permission denied test',
         });
+        expect(response.status()).toBe(403);
+        const error = (await response.json()) as ApiError;
+        expect(error.id).toBe('api.context.permissions.app_error');
+    });
+
+    test('should return 403 for missing channel id', async ({ api }) => {
+        // @ts-expect-error: intentionally missing channel_id
+        const response = await api.posts.create({ message: 'Missing channel id' });
         expect(response.status()).toBe(403);
         const error = (await response.json()) as ApiError;
         expect(error.id).toBe('api.context.permissions.app_error');
