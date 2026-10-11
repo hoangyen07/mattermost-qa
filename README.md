@@ -60,7 +60,6 @@ web/components/             – Component Objects (e.g. Sidebar)
 mobile/screens/             – Screen Objects
 tests/{setup,api,web,mobile}
 docker/     docker-compose.yml – Mattermost + Postgres for local/CI
-postman/    collection + environment – exploratory API checks (Postman / Newman)
 docs/       devlog.md          – day-by-day build log
 ```
 
@@ -98,7 +97,6 @@ npm run report          # open the HTML report
 | `npm run lint` | Lint with ESLint (typescript-eslint + Playwright rules) |
 | `npm run format` / `format:check` | Format with Prettier / check formatting without changing files |
 | `npm run test:api` | Run the API tests (Playwright `request`, no browser) |
-| `npm run test:postman` | Run the Postman collection with Newman, using credentials from `.env` |
 
 Before committing: `npm run format:check && npm run lint && npm run typecheck`
 
@@ -186,7 +184,6 @@ web/components/             – Component Objects (vd. Sidebar)
 mobile/screens/             – Screen Objects
 tests/{setup,api,web,mobile}
 docker/     docker-compose.yml – Mattermost + Postgres chạy local/CI
-postman/    collection + environment – khám phá API bằng Postman / Newman
 docs/       devlog.md          – nhật ký xây dựng theo từng ngày
 ```
 
@@ -224,7 +221,6 @@ npm run report          # mở HTML report
 | `npm run lint` | Kiểm tra code bằng ESLint (typescript-eslint + rule cho Playwright) |
 | `npm run format` / `format:check` | Format code bằng Prettier / chỉ kiểm tra, không sửa file |
 | `npm run test:api` | Chạy test API (Playwright `request`, không mở trình duyệt) |
-| `npm run test:postman` | Chạy Postman collection bằng Newman, lấy tài khoản từ `.env` |
 
 Trước khi commit: `npm run format:check && npm run lint && npm run typecheck`
 
