@@ -39,7 +39,12 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     // Authenticated admin client for data setup, logged in once per worker
     api: [
         async ({ playwright }, use) => {
-            const request = await playwright.request.newContext({ baseURL: env.baseUrl });
+            // Empty storageState: in the web project, new request contexts inherit the browser
+            // cookies, and Mattermost rejects a login that carries them without a CSRF header
+            const request = await playwright.request.newContext({
+                baseURL: env.baseUrl,
+                storageState: { cookies: [], origins: [] },
+            });
             const api = new MattermostApi(request);
             const response = await api.users.login(env.adminUsername, env.adminPassword);
             if (!response.ok()) {
