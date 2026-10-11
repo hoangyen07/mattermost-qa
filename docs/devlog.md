@@ -1629,3 +1629,56 @@ $ npm run test:web -- --repeat-each=3     # 22 passed (14.0s) = 1 setup + 7 × 3
 - Test xuyên tầng: tạo post bằng `createPost`, mở `town-square` trên UI và kiểm tra post hiện ra. Đã có đủ `createPost` và `storageState`.
 - Case "thiếu `channel_id`" (còn treo từ Ngày 9), sau đó xóa `postman/`.
 - Fixture tạo channel riêng cho từng test, thay cho việc dùng chung `town-square`.
+
+---
+
+## Ghi chú — 11/10/2026: Test xuyên tầng, đủ 8/8 request Postman, xóa Postman
+
+### Mục tiêu
+Làm các mục "Tiếp theo" của Ngày 10. Phần code này do Claude viết theo yêu cầu, không phải tự làm như các ngày trước.
+
+### Đã làm
+- [x] `tests/web/post-from-api.spec.ts`: test xuyên tầng đầu tiên. Tạo post bằng `createPost` (API), rồi mở `town-square` trên UI và kiểm tra post hiện ra. Bản nháp trước đặt test này trong `tests/api/posts.spec.ts`; bản cuối chuyển sang project `web` để dùng `storageState`, không phải login qua UI.
+- [x] `posts.spec.ts`: thêm test thiếu `channel_id` (dùng `@ts-expect-error`), và thêm comment ghi lại phát hiện ở Ngày 6 (server trả `403` thay vì `400`/`404`)
+- [x] `src/fixtures/index.ts`: fixture `api` dùng `storageState` trống (xem Vấn đề gặp phải)
+- [x] Xóa `postman/`, `scripts/run-postman.mts`, script `test:postman`. Bỏ các dòng tương ứng trong README (cả 2 ngôn ngữ), `.prettierignore` và `include` của `tsconfig.json`
+
+**Đối chiếu với Postman: 8/8 request**
+
+| Request Postman | Test Playwright |
+|---|---|
+| Login | `auth.spec.ts` › logs in with valid credentials |
+| Get current user | `auth.spec.ts` › returns the logged-in user |
+| Get channel by team and channel name | `beforeAll` trong `posts.spec.ts` và `post-from-api.spec.ts` |
+| Create post | `posts.spec.ts` › creates a post and reads it back (qua `createPost`) |
+| Get created post | `posts.spec.ts` › creates a post and reads it back |
+| Login with invalid credentials | `auth.spec.ts` › rejects invalid credentials |
+| Get current user without token | `auth.spec.ts` › rejects a request without a token |
+| Create post without channel_id | `posts.spec.ts` › should return 403 for missing channel id |
+
+Thêm vào đó, test `should return 403 for non-existent channel` và test xuyên tầng không có trong Postman.
+
+### Vấn đề gặp phải
+**1. Fixture `api` bị `401 session_expired` khi chạy trong project `web`.**
+- Lỗi: `Admin login failed: 401 {"id":"api.context.session_expired.app_error", ...}`. Cùng fixture đó chạy bình thường trong project `api`.
+- **Nguyên nhân:** trong project `web`, `playwright.request.newContext()` **tự nạp `storageState` của project**. Kiểm tra bằng một test tạm: context mới tạo đã có sẵn cookie `MMAUTHTOKEN`, `MMUSERID`, `MMCSRF`. Request login của fixture vì vậy gửi kèm cookie phiên đăng nhập của trình duyệt, mà không có header CSRF đi kèm. Mattermost từ chối và trả về `session_expired`.
+- **Cách sửa:** tạo context của fixture `api` với `storageState: { cookies: [], origins: [] }`. API client giờ tách hẳn khỏi trạng thái của trình duyệt, chạy giống nhau ở mọi project.
+- **Bài học:** tùy chọn `use` của project (như `storageState`) không chỉ áp dụng cho `page`, mà còn cho request context tạo bằng `playwright.request.newContext()`. Lỗi này chỉ xuất hiện khi lần đầu dùng fixture `api` trong project `web`.
+
+**2. Docker Desktop tắt, toàn bộ test fail với `ECONNREFUSED`.** Giống Ngày 8. Bật Docker, chạy `npm run env:up`.
+
+### Kiểm tra kết quả
+```
+$ npm run format:check                    # All matched files use Prettier code style!
+$ npm run lint                            # no errors
+$ npm run typecheck                       # no errors
+$ npm run test:api -- --repeat-each=3     # 21 passed (2.0s) = 7 × 3
+$ npm run test:web -- --repeat-each=3     # 25 passed (14.7s) = 1 setup + 8 × 3
+```
+- **Assertion có tác dụng:** tạm sửa `postWithText(message)` thành một chuỗi sai → test xuyên tầng **fail** (`toBeVisible() failed`). Sau đó khôi phục lại.
+- **Dữ liệu được dọn:** sau các lần chạy, `town-square` còn **0** post của test (`Hello from Playwright cross-layer`, `Hello from Playwright API`, `Missing channel id`).
+
+### Tiếp theo
+- Fixture tạo channel riêng cho từng test, thay cho việc dùng chung `town-square`.
+- Thêm `user_id` vào `Post`, kiểm tra post được tạo bởi đúng user.
+- Kiểm tra response lúc chạy bằng `zod`, thay cho `as`.
