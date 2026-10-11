@@ -1682,3 +1682,61 @@ $ npm run test:web -- --repeat-each=3     # 25 passed (14.7s) = 1 setup + 8 × 3
 - Fixture tạo channel riêng cho từng test, thay cho việc dùng chung `town-square`.
 - Thêm `user_id` vào `Post`, kiểm tra post được tạo bởi đúng user.
 - Kiểm tra response lúc chạy bằng `zod`, thay cho `as`.
+
+---
+
+## Ngày 11 — 12/10/2026: Kết nối Postgres, kiểm tra dữ liệu _(đang làm)_
+
+### Mục tiêu
+Test kết nối thẳng vào Postgres của Mattermost, để kiểm tra dữ liệu **thật sự được lưu** đúng như API trả về. Đây là tầng còn thiếu trong chuỗi "API → DB → UI" của README.
+
+### Việc cần làm
+- [ ] **Bước 0: khám phá DB bằng tay** trước khi viết code (giống Postman ở Ngày 6): `docker exec -it mm-db psql -U mmuser -d mattermost`, rồi `\dt`, `\d posts`, query vài post mới nhất. Hoặc dùng DBeaver / TablePlus: `localhost:5432`, tài khoản trong `.env`.
+- [x] **Bước 1:** `npm i -D pg @types/pg`
+- [x] **Bước 2:** cấu hình DB trong `env.ts` (`host`, `port`, `user`, `password`, `database`), đọc từ các biến `POSTGRES_*` đã có trong `.env`
+  - [ ] Cân nhắc thêm `DB_HOST` / `DB_PORT` vào `.env.example` (trên CI, DB có thể nằm ở host khác)
+- [x] **Bước 3:** `src/db/MattermostDb.ts`: `Pool`, `getPost(id)` trả về `PostRow | undefined`, `close()`
+- [x] **Bước 4:** fixture `db` scope worker trong `src/fixtures/index.ts`, `close()` sau `use`
+- [ ] **Bước 5:** `tests/api/posts-db.spec.ts` (đã viết, chưa review và chưa chạy)
+  - [ ] Test 1: post tạo qua API được lưu đúng: `message`, `channelid`, `userid` (so với `getMe`), `deleteat = '0'`
+  - [ ] Test 2: xóa post là xóa mềm: tạo bằng `api.posts.create` (không dùng `createPost`), xóa, dòng vẫn còn với `deleteat > 0`
+  - [ ] Test 3 (không bắt buộc): xuyên 3 tầng API → DB → UI
+
+### Kiến thức
+**Khám phá DB (đã chạy thử ngày 11/10):**
+- **Tên cột viết thường và không có dấu gạch dưới:** `channelid`, `userid`, `createat`. API trả về `channel_id`, `user_id`, `create_at`. Mỗi tầng đặt tên theo kiểu riêng.
+- **Thời gian lưu dạng số `bigint`** (millisecond tính từ 1970), không phải kiểu `timestamp`.
+- **Xóa post là xóa mềm (soft delete):**
+  ```sql
+  SELECT count(*) FILTER (WHERE deleteat = 0) AS live,
+         count(*) FILTER (WHERE deleteat > 0) AS deleted
+  FROM posts WHERE message LIKE 'Hello from Playwright API%';
+  -- live = 0, deleted = 31
+  ```
+  Fixture `createPost` đã "xóa" 31 post, nhưng cả 31 dòng vẫn còn trong DB, chỉ có `deleteat` được đặt thành thời điểm xóa. API và UI coi như post đã mất, DB thì vẫn giữ. Chỉ test ở tầng DB mới thấy điều này.
+
+**Những điểm cần chú ý khi viết code:**
+- **Tham số hóa query (`$1` + `[id]`), không nối chuỗi vào SQL.** Nối chuỗi là lỗi **SQL injection**: nếu giá trị chứa `'`, câu SQL bị phá vỡ hoặc chạy lệnh khác. Bắt buộc, kể cả trong code test.
+- **`bigint` trả về dạng `string`.** `bigint` của Postgres có thể vượt giới hạn chính xác của `number` trong JavaScript, nên `pg` mặc định trả về chuỗi. So sánh phải viết `toBe('0')`, hoặc chuyển bằng `Number(...)`.
+- **`PostRow | undefined`:** không tìm thấy dòng thì `rows[0]` là `undefined`, và type bắt phải kiểm tra trước khi dùng.
+- **Chỉ `SELECT`, không bao giờ `INSERT` / `UPDATE` / `DELETE`.** Ghi thẳng vào DB của Mattermost là bỏ qua logic của app (cache, quyền, các bảng liên quan). Dữ liệu được **tạo qua API, chỉ đọc qua DB**.
+- **Fixture `db` phải `close()` sau `use`.** Pool còn mở thì Node không thoát được, và Playwright treo ở cuối lần chạy.
+- **`async ({}, use)`:** fixture không cần fixture nào khác vẫn phải viết `{}` (bài destructuring ở Ngày 10). ESLint có thể báo `no-empty-pattern`.
+- **Khi nào cần `expect.poll`:** Mattermost ghi post vào DB trước khi trả về `201`, nên query ngay là thấy. Với dữ liệu được ghi bất đồng bộ (chạy nền), dùng `expect.poll(...)` để thử lại đến khi đúng. Không dùng `waitForTimeout`.
+
+### Thử phá để hiểu
+- [ ] Sửa `POSTGRES_PASSWORD` trong `.env` thành sai → xem lỗi `pg` báo gì, test nào fail
+- [ ] Bỏ `await db.close()` → xem Playwright có kết thúc không
+- [ ] Viết `expect(row?.deleteat).toBe(0)` (số, không phải chuỗi) → đọc thông báo lỗi
+- [ ] So sánh `SELECT count(*) FROM posts` trước và sau khi chạy test → số dòng chỉ tăng, vì xóa mềm
+
+### Kiểm tra kết quả
+Chưa chạy. Ngày 11 xong khi:
+```bash
+npm run format:check && npm run lint && npm run typecheck
+npm run test:api -- --repeat-each=3
+npm run test:web
+```
+
+### Tiếp theo
+- Review và chạy `posts-db.spec.ts`, rồi ghi các vấn đề gặp phải vào mục này.
