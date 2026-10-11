@@ -4,6 +4,7 @@ import { ChannelPage } from '../../web/pages/ChannelPage';
 import { MattermostApi } from '../api/MattermostApi';
 import { env } from '../config/env';
 import type { Post } from '../api/types';
+import { MattermostDb } from '../db/MattermostDb';
 
 type TestFixtures = {
     loginPage: LoginPage;
@@ -13,6 +14,7 @@ type TestFixtures = {
 
 type WorkerFixtures = {
     api: MattermostApi;
+    db: MattermostDb;
 };
 
 export const test = base.extend<TestFixtures, WorkerFixtures>({
@@ -52,6 +54,14 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
             }
             await use(api);
             await request.dispose();
+        },
+        { scope: 'worker' },
+    ],
+    db: [
+        async ({}, use) => {
+            const db = new MattermostDb(env.db);
+            await use(db);
+            await db.close(); // without this the worker cannot exit
         },
         { scope: 'worker' },
     ],
