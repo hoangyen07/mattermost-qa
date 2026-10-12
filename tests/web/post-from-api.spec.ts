@@ -11,10 +11,14 @@ test.describe('Post created via API', () => {
         channelId = ((await response.json()) as Channel).id;
     });
 
-    // Data comes from the API, so this test only checks what the UI shows
-    test('shows a post created via API in the channel', async ({ page, channelPage, createPost }) => {
+    // Data comes from the API, so this test only checks what the DB stores and the UI shows
+    test('stores and shows a post created via API', async ({ page, channelPage, db, createPost }) => {
         const message = `Hello from Playwright cross-layer ${Date.now()}`;
-        await createPost(message, channelId);
+        const post = await createPost(message, channelId);
+
+        const row = await db.getPost(post.id);
+        expect(row?.message).toBe(message);
+        expect(row?.channelid).toBe(channelId);
 
         await channelPage.goto(env.team, 'town-square');
         await expect(page).toHaveURL(new RegExp(`/${env.team}/channels/town-square`));
