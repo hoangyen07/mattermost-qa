@@ -1724,6 +1724,68 @@ Test kết nối thẳng vào Postgres của Mattermost, để kiểm tra dữ l
 - **`async ({}, use)`:** fixture không cần fixture nào khác vẫn phải viết `{}` (bài destructuring ở Ngày 10). ESLint có thể báo `no-empty-pattern`.
 - **Khi nào cần `expect.poll`:** Mattermost ghi post vào DB trước khi trả về `201`, nên query ngay là thấy. Với dữ liệu được ghi bất đồng bộ (chạy nền), dùng `expect.poll(...)` để thử lại đến khi đúng. Không dùng `waitForTimeout`.
 
+**Test xuyên tầng API → DB → UI: vì sao không cần login.**
+
+Test `stores and shows a post created via API` trong `tests/web/post-from-api.spec.ts`:
+```ts
+test('stores and shows a post created via API', async ({ page, channelPage, db, createPost }) => {
+    const message = `Hello from Playwright cross-layer ${Date.now()}`;
+    const post = await createPost(message, channelId);
+
+    const row = await db.getPost(post.id);
+    expect(row?.message).toBe(message);
+    expect(row?.channelid).toBe(channelId);
+
+    await channelPage.goto(env.team, 'town-square');
+    await expect(page).toHaveURL(new RegExp(`/${env.team}/channels/town-square`));
+    await expect(channelPage.postWithText(message)).toBeVisible();
+});
+```
+Test này **không login**, vì đã được đăng nhập sẵn **trước khi bắt đầu chạy**. File nằm trong `tests/web/`, nên thuộc project `web`, có `dependencies: ['setup']` và `storageState: ADMIN_STORAGE_STATE`:
+```
+① setup project: tests/setup/auth.setup.ts
+   log in via UI (the one and only time) → save cookies to .auth/admin.json
+        │
+        ▼
+② the test starts → Playwright creates `context` with storageState = admin.json
+   → `page` → `channelPage`  (cookie MMAUTHTOKEN is already there)
+        │
+        ▼
+③ channelPage.goto(...) → the browser attaches the cookie automatically → Mattermost: "logged in"
+```
+Bước login vẫn có, nhưng nằm trong `auth.setup.ts` và chạy trước test (xem Ngày 10, mục "Test lấy cookie bằng cách nào").
+
+**3 tầng, 3 cách xác thực khác nhau.** 4 fixture trong `{ }` thuộc 3 tầng, và mỗi tầng đi vào hệ thống bằng một "cửa" riêng:
+
+| Dòng | Tầng | Fixture | Xác thực bằng gì |
+|---|---|---|---|
+| `createPost(message, channelId)` | **API** | `createPost` → `api` | Fixture `api` login bằng `POST /users/login`, gắn **token** vào header `Authorization: Bearer ...` |
+| `db.getPost(post.id)` | **DB** | `db` | **Không login vào Mattermost.** Kết nối thẳng Postgres bằng tài khoản DB (`POSTGRES_USER` / `POSTGRES_PASSWORD` trong `.env`) |
+| `channelPage.goto(...)`, `postWithText(...)` | **UI** | `page`, `channelPage` | **Cookie** `MMAUTHTOKEN` nạp từ `.auth/admin.json` |
+
+```
+                     ┌─ api fixture ── Bearer token (login via API, once per worker) ──┐
+test ── createPost ──┘                                                                  ├─▶ Mattermost server
+     ── channelPage ── page ── browser cookie (from admin.json, setup logged in via UI) ┘        │
+     ── db ─────────────────── Postgres username/password (.env) ─────────────────────────▶ Postgres
+```
+Cả 3 tầng cùng nhìn thấy **một post**, mỗi tầng từ một phía. Đó là ý nghĩa của test xuyên tầng.
+
+Fixture `api` tạo request context với `storageState` trống (sửa ngày 11/10), nên token của nó tách hẳn khỏi cookie của trình duyệt, dù cả hai cùng chạy trong project `web`.
+
+**Từng bước của test:**
+1. `message` có `Date.now()`: nội dung khác nhau mỗi lần chạy (Ngày 3), để tìm đúng post này ở cả DB lẫn UI.
+2. **API:** `createPost` tạo post, trả về `post.id`. Fixture ghi lại ID để xóa khi test kết thúc. `channelId` lấy sẵn trong `beforeAll`, cũng qua `api`.
+3. **DB:** đọc đúng dòng có `id` vừa tạo, kiểm tra `message` và `channelid`. Xác nhận API **thật sự ghi** đúng dữ liệu, chứ không chỉ trả về `201`.
+4. **UI:** `goto` rồi kiểm tra URL ngay. Nếu `storageState` hỏng, Mattermost đẩy về `/login`, và test fail tại dòng này với thông báo rõ ràng, thay vì timeout 30 giây.
+5. **UI:** post do API tạo hiện ra trên giao diện. Tìm theo nội dung riêng bằng `postWithText`, không dùng `.last()`, nên không lẫn với tin nhắn của các test chạy song song.
+6. Test kết thúc → fixture `createPost` gọi API xóa post. Đây là **xóa mềm**: dòng vẫn còn trong DB, chỉ có `deleteat` khác `0`.
+
+**Tự kiểm tra:**
+- Xóa `.auth/` rồi chạy `npx playwright test tests/web/post-from-api.spec.ts` → setup chạy lại và tạo file mới, nhờ `dependencies`.
+- Xóa `.auth/` rồi chạy thêm `--no-deps` → lỗi không tìm thấy file. Trình duyệt **chỉ** đăng nhập được nhờ file đó.
+- Chạy với `--trace on`, mở `npm run report`, xem tab Network: request của trang có header `Cookie: MMAUTHTOKEN=...`. Request của `createPost` đi qua một context khác, có header `Authorization: Bearer ...`.
+
 ### Thử phá để hiểu
 - [ ] Sửa `POSTGRES_PASSWORD` trong `.env` thành sai → xem lỗi `pg` báo gì, test nào fail
 - [ ] Bỏ `await db.close()` → xem Playwright có kết thúc không
