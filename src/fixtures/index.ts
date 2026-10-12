@@ -58,6 +58,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         { scope: 'worker' },
     ],
     db: [
+        // Playwright requires an object pattern here, even when the fixture needs no other fixtures
+        // eslint-disable-next-line no-empty-pattern
         async ({}, use) => {
             const db = new MattermostDb(env.db);
             await use(db);
