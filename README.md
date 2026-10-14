@@ -54,7 +54,7 @@ src/
   api/        MattermostApi – API client, reused for data setup across all layers
   db/         db.ts         – queries to verify data
   data/       factory.ts    – unique test data, safe for parallel runs
-  fixtures/   index.ts      – Playwright fixtures (api, channelId, page objects)
+  fixtures/   index.ts      – Playwright fixtures (api, db, testChannel, createPost, page objects)
 web/pages/                  – Page Objects
 web/components/             – Component Objects (e.g. Sidebar)
 mobile/screens/             – Screen Objects
@@ -178,7 +178,7 @@ src/
   api/        MattermostApi – API client, dùng lại cho setup data ở mọi tầng
   db/         db.ts         – query verify dữ liệu
   data/       factory.ts    – test data unique, chạy song song an toàn
-  fixtures/   index.ts      – Playwright fixtures (api, channelId, page objects)
+  fixtures/   index.ts      – Playwright fixtures (api, db, testChannel, createPost, page objects)
 web/pages/                  – Page Objects
 web/components/             – Component Objects (vd. Sidebar)
 mobile/screens/             – Screen Objects

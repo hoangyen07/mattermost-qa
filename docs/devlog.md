@@ -1802,3 +1802,110 @@ npm run test:web
 
 ### Tiếp theo
 - Review và chạy `posts-db.spec.ts`, rồi ghi các vấn đề gặp phải vào mục này.
+
+---
+
+## Ngày 12 — 14/10/2026: Data factory, luồng API → web
+
+### Mục tiêu
+Mỗi test web **tự tạo dữ liệu riêng qua API** (channel riêng), rồi kiểm tra trên web, thay vì dùng chung `town-square`. Phần code này do Claude viết theo yêu cầu.
+
+Trước khi làm, `town-square` còn 53 + 44 post do `message.spec.ts` gửi qua UI mà không bao giờ được dọn.
+
+### Đã làm
+- [x] Bước 0: khám phá API channel bằng `curl` (kết quả bên dưới)
+- [x] `types.ts`: `Team`, `ChannelType` (`'O' | 'P'`), `NewChannel`; `Channel` có thêm `type`
+- [x] `TeamsApi.getByName()` (`api.teams`); `ChannelsApi.create()` và `delete()`
+- [x] `src/data/factory.ts`: `uniqueId()`, `buildChannel(overrides)`, `buildMessage(prefix)`
+- [x] Fixture `teamId` (scope worker) và `testChannel` (scope test: tạo channel public, archive sau test)
+- [x] Fixture `createPost`: kiểm tra status khi xóa post (xem Vấn đề 2)
+- [x] `message.spec.ts`: cả 2 test gửi tin nhắn vào channel riêng. Test sidebar mở `town-square` rồi chuyển sang channel mới, nên kiểm tra luôn việc **channel tạo bằng API hiện ra trong sidebar**
+- [x] `post-from-api.spec.ts`: dùng `testChannel` thay cho `town-square`, bỏ `beforeAll`. Thêm test 3 post tạo qua API hiện đúng thứ tự
+- [x] README: cập nhật danh sách fixture (cả 2 ngôn ngữ)
+
+### Bước 0: API channel (kiểm tra bằng `curl`)
+| Thử | Kết quả |
+|---|---|
+| Tạo channel hợp lệ | `201` |
+| `name` có chữ hoa (`QA-Upper`) hoặc dấu cách | `400` `model.channel.is_valid.1_or_more.app_error` |
+| `name` dài 64 ký tự | `201` |
+| `name` dài 65 ký tự | **`500`** `app.channel.create_channel.internal_error` |
+| Tạo trùng `name` với channel đang hoạt động | `400` `store.sql_channel.save_channel.exists.app_error` |
+| `DELETE /channels/{id}` | `200` `{"status":"OK"}`. Trong DB dòng vẫn còn, `deleteat > 0`: xóa channel là **archive** |
+| Tạo trùng `name` với channel **đã archive** | `400` `...exists...`: tên của channel đã archive **không dùng lại được** |
+| `type: "P"` | `201`, channel private |
+
+**2 phát hiện:**
+- **Tên dài 65 ký tự trả về `500` thay vì `400`.** Dữ liệu sai do người gọi gửi lên thì nên là lỗi `4xx`. `500` nghĩa là server không kiểm tra độ dài trước khi ghi DB. Có thể là bug của Mattermost, chưa viết test cho trường hợp này.
+- **Channel đã archive vẫn giữ tên.** Mỗi lần chạy test phải dùng tên mới, nếu không lần chạy thứ hai sẽ lỗi `exists`. Đây là lý do cần data factory.
+
+### Kiến thức
+**Vì sao `Date.now()` chưa đủ.** Hai worker chạy song song có thể gọi `Date.now()` trong cùng một millisecond và nhận cùng một giá trị. Với nội dung tin nhắn thì trùng không sao, nhưng với `name` của channel thì API trả lỗi `exists`. `randomUUID().slice(0, 8)` cho chuỗi ngẫu nhiên (16⁸ ≈ 4 tỷ khả năng), không phụ thuộc thời gian.
+
+**Factory và fixture làm 2 việc khác nhau:**
+
+| | Factory (`buildChannel`) | Fixture (`testChannel`) |
+|---|---|---|
+| Trả lời câu hỏi | Dữ liệu **trông thế nào** | **Tạo và dọn** khi nào |
+| Gọi API | Không | Có |
+| Dùng cho test âm tính | Được: `buildChannel({ name: 'Invalid Name' })` rồi gọi API trực tiếp | Không (fixture có `expect(201)`) |
+
+**`Partial` và vị trí của `...overrides`:**
+```ts
+export function buildChannel(overrides: Partial<ChannelData> = {}): ChannelData {
+    const id = uniqueId();
+    return { name: `qa-${id}`, display_name: `QA ${id}`, type: 'O', ...overrides };
+}
+```
+- `Partial<ChannelData>`: mọi field trở thành không bắt buộc. Test chỉ truyền những gì nó quan tâm, ví dụ `buildChannel({ type: 'P' })`.
+- `...overrides` đặt **cuối cùng**: trong object, khóa viết sau ghi đè khóa viết trước. Đặt ở đầu thì giá trị mặc định sẽ ghi đè lên thứ test truyền vào.
+- `ChannelData = Omit<NewChannel, 'team_id'>`: factory không biết team id, fixture thêm vào sau: `{ ...buildChannel(), team_id: teamId }`.
+
+**Fixture trả về object hay hàm.** `createPost` đưa vào `use` một **hàm** (factory fixture), vì một test có thể cần nhiều post. `testChannel` đưa vào `use` một **object**, vì mỗi test thường chỉ cần một channel. Khi có test cần nhiều channel thì đổi sang dạng `createChannel(...)`.
+
+**`name` và `display_name`:** URL dùng `name` (`/team/channels/qa-1a2b3c4d`), sidebar hiển thị `display_name` (`QA 1a2b3c4d`).
+
+### Vấn đề gặp phải
+**1. Fixture tên `channel` bị lỗi type: `Argument of type 'Channel' is not assignable to parameter of type 'string'`.**
+- **Nguyên nhân:** Playwright đã có sẵn một option tên `channel` (chọn kênh trình duyệt, ví dụ `'chrome'`, `'msedge'`), khai báo là `channel: BrowserChannel | undefined`. Fixture mới trùng tên nên bị ép theo type đó.
+- **Cách sửa:** đổi tên thành `testChannel`.
+- **Bài học:** trước khi đặt tên fixture, kiểm tra tên đó chưa có trong các fixture và option sẵn có của Playwright (`page`, `request`, `browser`, `channel`, `baseURL`…).
+
+**2. Lỗi ẩn: viết sai thứ tự fixture thì post không được xóa, nhưng test vẫn xanh.**
+- Thử test với `{ createPost, testChannel }` (`createPost` đứng trước), xem trace:
+  ```
+  POST   /channels           201
+  POST   /posts              201
+  DELETE /channels/{id}      200   ← channel archived first
+  DELETE /posts/{id}         400   ← an archived channel rejects the delete
+  ```
+- **Nguyên nhân:** Playwright dọn fixture **theo thứ tự ngược với thứ tự viết trong `{ }`**. Fixture `createPost` không phụ thuộc `testChannel` (nó chỉ nhận `channelId` khi được gọi), nên thứ tự chỉ do cách viết quyết định. Fixture `createPost` cũ không kiểm tra status khi xóa, nên lỗi `400` bị bỏ qua.
+- **Cách sửa:** cleanup của `createPost` kiểm tra `expect.soft(response.status(), 'delete post <id>').toBe(200)`. Viết sai thứ tự thì test fail rõ ràng: `delete post ... Expected: 200, Received: 400`. Dùng `expect.soft` để vẫn thử xóa các post còn lại.
+- **Quy tắc:** viết `testChannel` **trước** `createPost` trong `{ }`.
+- Với thứ tự đúng, trace cho thấy: tạo channel → tạo 3 post → xóa 3 post → archive channel.
+- **Bài học:** code dọn dữ liệu cũng phải kiểm tra kết quả. Cleanup thất bại trong im lặng là lỗi khó phát hiện nhất, giống `afterEach` tạo rồi xóa nhầm post ở Ngày 9.
+
+**3. Docker Desktop tắt.** Bật Docker, chạy `npm run env:up` trước khi làm.
+
+### Kiểm tra kết quả
+```
+$ npm run format:check                    # All matched files use Prettier code style!
+$ npm run lint                            # no errors
+$ npm run typecheck                       # no errors
+$ npm run test:api -- --repeat-each=3     # 27 passed (2.5s)
+$ npm run test:web -- --repeat-each=3     # 28 passed (17.3s) = 1 setup + 9 × 3
+```
+Kiểm tra trong DB sau lần chạy (chỉ tính dữ liệu tạo sau khi bắt đầu chạy):
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Post mới trong `town-square` | 9, **cả 9 đã bị xóa mềm**. Đến từ 3 test API vẫn dùng `town-square` qua `createPost` |
+| Post mới **chưa xóa** trong `town-square` | **0** (trước đây mỗi lần chạy để lại 2 post từ `message.spec.ts`) |
+| Channel `qa-*` được tạo | 12 (4 test dùng `testChannel` × 3 lần) |
+| Channel `qa-*` chưa archive | **0** |
+| Post chưa xóa trong channel `qa-*` | 6: tin nhắn do `message.spec.ts` gửi **qua UI** (2 test × 3). Không có fixture nào biết ID của chúng, nhưng chúng nằm trong channel đã archive |
+
+### Tiếp theo
+- Test API (`posts.spec.ts`, `posts-db.spec.ts`) vẫn tạo post trong `town-square`. Có thể chuyển sang `testChannel`.
+- Ngày 11 vẫn còn _(đang làm)_: cập nhật kết quả, bỏ các comment `TODO` trong `posts-db.spec.ts`.
+- Có thể viết test ghi lại hành vi `500` khi tên channel dài 65 ký tự.
