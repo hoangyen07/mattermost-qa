@@ -3,18 +3,21 @@ import { LoginPage } from '../../web/pages/LoginPage';
 import { ChannelPage } from '../../web/pages/ChannelPage';
 import { MattermostApi } from '../api/MattermostApi';
 import { env } from '../config/env';
-import type { Post } from '../api/types';
+import type { Channel, Post, Team } from '../api/types';
 import { MattermostDb } from '../db/MattermostDb';
+import { buildChannel } from '../data/factory';
 
 type TestFixtures = {
     loginPage: LoginPage;
     channelPage: ChannelPage;
     createPost: (message: string, channelId: string) => Promise<Post>;
+    testChannel: Channel;
 };
 
 type WorkerFixtures = {
     api: MattermostApi;
     db: MattermostDb;
+    teamId: string;
 };
 
 export const test = base.extend<TestFixtures, WorkerFixtures>({
@@ -35,8 +38,25 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
             return post;
         });
 
-        // Runs after every test that used createPost, even if the test failed
-        for (const id of created) await api.posts.delete(id);
+        // Runs after every test that used createPost, even if the test failed.
+        // Fixtures are torn down in reverse order of the test's `{ }` list, so list
+        // `testChannel` before `createPost`: an archived channel rejects the delete with 400.
+        // expect.soft: report a failed delete but still try to delete the remaining posts.
+        for (const id of created) {
+            const response = await api.posts.delete(id);
+            expect.soft(response.status(), `delete post ${id}`).toBe(200);
+        }
+    },
+    // A fresh public channel per test, archived afterwards.
+    // Not named `channel`: Playwright already uses that option for the browser channel (e.g. 'chrome')
+    testChannel: async ({ api, teamId }, use) => {
+        const response = await api.channels.create({ ...buildChannel(), team_id: teamId });
+        expect(response.status()).toBe(201);
+        const channel = (await response.json()) as Channel;
+
+        await use(channel);
+
+        await api.channels.delete(channel.id);
     },
     // Authenticated admin client for data setup, logged in once per worker
     api: [
@@ -54,6 +74,15 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
             }
             await use(api);
             await request.dispose();
+        },
+        { scope: 'worker' },
+    ],
+    // The API uses ids, not names: look the team up once per worker
+    teamId: [
+        async ({ api }, use) => {
+            const response = await api.teams.getByName(env.team);
+            expect(response.status()).toBe(200);
+            await use(((await response.json()) as Team).id);
         },
         { scope: 'worker' },
     ],
