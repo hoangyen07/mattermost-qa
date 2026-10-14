@@ -9,11 +9,28 @@ export type ApiError = {
     status_code: number;
 };
 
+export type Team = {
+    id: string;
+    name: string;
+    display_name: string;
+};
+
+// 'O' = open (public), 'P' = private
+export type ChannelType = 'O' | 'P';
+
 export type Channel = {
     id: string;
     name: string;
     display_name: string;
     team_id: string;
+    type: ChannelType;
+};
+
+export type NewChannel = {
+    team_id: string;
+    name: string;
+    display_name: string;
+    type: ChannelType;
 };
 
 export type Post = {
